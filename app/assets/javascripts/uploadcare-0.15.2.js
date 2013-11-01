@@ -1,7 +1,7 @@
 /*
- * Uploadcare (0.15.0)
- * Date: 2013-10-16 16:20:43 +0400
- * Rev: cfaa7aecf6
+ * Uploadcare (0.15.2)
+ * Date: 2013-10-30 17:44:17 +0400
+ * Rev: 47ec22fb1d
  */
 ;(function(uploadcare, SCRIPT_BASE){(function() {
 
@@ -119,46 +119,285 @@
 // from https://github.com/jaubourg/ajaxHooks/blob/master/src/xdr.js
 
 if ( window.XDomainRequest ) {
-	jQuery.ajaxTransport(function( s ) {
-		if ( s.crossDomain && s.async ) {
-			if ( s.timeout ) {
-				s.xdrTimeout = s.timeout;
-				delete s.timeout;
-			}
-			var xdr;
-			return {
-				send: function( _, complete ) {
-					function callback( status, statusText, responses, responseHeaders ) {
-						xdr.onload = xdr.onerror = xdr.ontimeout = jQuery.noop;
-						xdr = undefined;
-						complete( status, statusText, responses, responseHeaders );
-					}
-					xdr = new XDomainRequest();
-					xdr.onload = function() {
-						callback( 200, "OK", { text: xdr.responseText }, "Content-Type: " + xdr.contentType );
-					};
-					xdr.onerror = function() {
-						callback( 404, "Not Found" );
-					};
-					xdr.onprogress = function() {};
-					xdr.ontimeout = function() {
-						callback( 0, "timeout" );
-					};
-					xdr.timeout = s.xdrTimeout || Number.MAX_VALUE;
-					xdr.open( s.type, s.url.replace(/^https?:/, '') );
-					xdr.send( ( s.hasContent && s.data ) || null );
-				},
-				abort: function() {
-					if ( xdr ) {
-						xdr.onerror = jQuery.noop;
-						xdr.abort();
-					}
-				}
-			};
-		}
-	});
+    jQuery.ajaxTransport(function( s ) {
+        if ( s.crossDomain && s.async ) {
+            if ( s.timeout ) {
+                s.xdrTimeout = s.timeout;
+                delete s.timeout;
+            }
+            var xdr;
+            return {
+                send: function( _, complete ) {
+                    function callback( status, statusText, responses, responseHeaders ) {
+                        xdr.onload = xdr.onerror = xdr.ontimeout = jQuery.noop;
+                        xdr = undefined;
+                        complete( status, statusText, responses, responseHeaders );
+                    }
+                    xdr = new XDomainRequest();
+                    xdr.onload = function() {
+                        callback( 200, "OK", { text: xdr.responseText }, "Content-Type: " + xdr.contentType );
+                    };
+                    xdr.onerror = function() {
+                        callback( 404, "Not Found" );
+                    };
+                    xdr.onprogress = function() {};
+                    xdr.ontimeout = function() {
+                        callback( 0, "timeout" );
+                    };
+                    xdr.timeout = s.xdrTimeout || Number.MAX_VALUE;
+                    xdr.open( s.type, s.url.replace(/^https?:/, '') );
+                    xdr.send( ( s.hasContent && s.data ) || null );
+                },
+                abort: function() {
+                    if ( xdr ) {
+                        xdr.onerror = jQuery.noop;
+                        xdr.abort();
+                    }
+                }
+            };
+        }
+    });
 }
 ;
+// from https://github.com/homm/jquery-ordering
+
+(function($) {
+    function nearestFinder (targets) {
+        this.targets = targets;
+        this.last = null;
+        this.update();
+    }
+    nearestFinder.prototype = {
+        update: function() {
+            var rows = {};
+
+            this.targets.each(function(i) {
+                var offset = $(this).offset();
+                if ( ! (offset.top in rows)) {
+                    rows[offset.top] = [];
+                }
+                rows[offset.top].push([offset.left + this.offsetWidth/2, this]);
+            });
+
+            this.rows = rows;
+        },
+
+        find: function(x, y) {
+            var minDistance = Infinity;
+            var rows = this.rows;
+            var nearestRow, top, nearest;
+
+            for (top in rows) {
+                var distance = Math.abs(top - y);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearestRow = rows[top];
+                }
+            }
+
+            minDistance = Math.abs(nearestRow[0][0] - x);
+            nearest = nearestRow[0][1];
+            for (var i = 1; i < nearestRow.length; i++) {
+                var distance = Math.abs(nearestRow[i][0] - x);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = nearestRow[i][1];
+                }
+            }
+
+            return nearest;
+        },
+
+        findNotLast: function(x, y) {
+            var nearest = this.find(x, y);
+
+            if (this.last && nearest && this.last == nearest) {
+                return null;
+            }
+
+            return this.last = nearest;
+        }
+    };
+
+
+    $.fn.extend({
+        moveable: function(o) {
+            o = $.extend({
+                distance: 4,
+                anyButton: false,
+                axis: false,
+                zIndex: 1000,
+                start: $.noop,
+                move: $.noop,
+                finish: $.noop,
+                items: null,
+                keepFake: false
+            }, o);
+
+            function fixTouch(e) {
+                var touch, s;
+                s = e.originalEvent.touches;
+                if (s && s.length) {
+                    touch = s[0];
+                } else {
+                    s = e.originalEvent.changedTouches;
+                    if (s && s.length) {
+                        touch = s[0];
+                    } else {
+                        return;
+                    }
+                }
+                e.pageX = touch.pageX;
+                e.pageY = touch.pageY;
+                e.which = 1;
+            }
+
+            this.on('mousedown.moveable touchstart.movable', o.items, null, function(eDown) {
+                fixTouch(eDown);
+
+                if ( ! o.anyButton && eDown.which != 1) {
+                    return;
+                }
+                eDown.preventDefault();
+
+                var dragged = false;
+                var $dragged = $(this);
+                var $fake = false;
+                var originalPos = $dragged.position();  // offset parent
+
+                originalPos.top += $dragged.offsetParent().scrollTop();
+                originalPos.left += $dragged.offsetParent().scrollLeft();
+
+                $(document).on('mousemove.moveable touchmove.movable', function(eMove) {
+                    fixTouch(eMove);
+
+                    if ( ! dragged && (Math.abs(eMove.pageX - eDown.pageX) > o.distance || Math.abs(eMove.pageY - eDown.pageY) > o.distance)) {
+                        dragged = true;
+                        $fake = $dragged.clone()
+                            .css({position: 'absolute', zIndex: o.zIndex,
+                                  width: $dragged.width()})
+                            .appendTo($dragged.offsetParent());
+                        o.start({
+                            event: eMove,
+                            dragged: $dragged,
+                            fake: $fake
+                        });
+                    }
+
+                    if ( ! dragged) {
+                        return;
+                    }
+                    eMove.preventDefault();
+
+                    var dx = o.axis == 'y' ? 0 : eMove.pageX - eDown.pageX;
+                    var dy = o.axis == 'x' ? 0 : eMove.pageY - eDown.pageY;
+                    $fake.css({left: dx + originalPos.left, top: dy + originalPos.top});
+                    o.move({
+                        event: eMove,
+                        dragged: $dragged,
+                        fake: $fake,
+                        dx: dx,
+                        dy: dy
+                    });
+                });
+
+                $(document).on('mouseup.moveable touchend.movable touchcancel.movable touchleave.movable', function(eUp) {
+                    fixTouch(eUp);
+
+                    $(document).off('mousemove.moveable touchmove.movable');
+                    $(document).off('mouseup.moveable touchend.movable touchcancel.movable touchleave.movable');
+
+                    if ( ! dragged) {
+                        return;
+                    }
+                    eUp.preventDefault();
+
+                    var dx = eUp.pageX - eDown.pageX;
+                    var dy = eUp.pageY - eDown.pageY;
+                    dragged = false;
+                    o.finish({
+                        event: eUp,
+                        dragged: $dragged,
+                        fake: $fake,
+                        dx: dx,
+                        dy: dy
+                    });
+                    if ( ! o.keepFake) {
+                        $fake.remove();
+                    }
+                });
+            });
+        },
+
+        sortable: function(o) {
+            var oMovable = $.extend({
+                items: '>*'
+            }, o);
+            var o = $.extend({
+                checkBounds: function () {return true;},
+                start: $.noop,
+                attach: $.noop,
+                move: $.noop,
+                finish: $.noop
+            }, o);
+            var finder;
+            var initialNext = false;
+            var parent = this;
+
+            oMovable.start = function(info) {
+                o.start(info);
+                finder = new nearestFinder(parent.find(oMovable.items));
+                initialNext = info.dragged.next();
+            };
+
+            oMovable.move = function(info) {
+                info.nearest = null;
+
+                if (o.checkBounds(info)) {
+                    var offset = info.fake.offset();
+                    var nearest = finder.findNotLast(
+                        offset.left + info.dragged.width() / 2, offset.top);
+                    info.nearest = $(nearest);
+
+                    if (nearest && nearest != info.dragged[0]) {
+                        if (info.dragged.nextAll().filter(nearest).length > 0) {
+                            info.dragged.insertAfter(nearest);
+                        } else {
+                            info.dragged.insertBefore(nearest);
+                        }
+                        o.attach(info);
+                        finder.last = null;
+                        finder.update();
+                    }
+                } else if (finder.last !== null) {
+                    finder.last = null;
+                    if (initialNext.length) {
+                        info.dragged.insertBefore(initialNext);
+                    } else {
+                        info.dragged.parent().append(info.dragged);
+                    }
+                    o.attach(info);
+                    finder.update();
+                }
+
+                o.move(info);
+            };
+
+            oMovable.finish = function(info) {
+                var offset = info.fake.offset();
+                info.nearest = null;
+                if (o.checkBounds(info)) {
+                    info.nearest = $(finder.find(
+                        offset.left + info.dragged.width() / 2, offset.top));
+                }
+                o.finish(info);
+                finder = null;
+            };
+
+            return this.moveable(oMovable);
+        }
+    });
+})(jQuery);
 (function() {
 
   uploadcare.jQuery = jQuery;
@@ -1770,44 +2009,6 @@ var _require = (function() {
 
 }).call(this);
 (function() {
-  var $, namespace;
-
-  namespace = uploadcare.namespace, $ = uploadcare.jQuery;
-
-  namespace('uploadcare.utils', function(utils) {
-    var MAX_ATTEMPTS, cache;
-    cache = {};
-    MAX_ATTEMPTS = 3;
-    return utils.loadPlugin = function(filename) {
-      var df;
-      if (!cache[filename]) {
-        df = $.Deferred();
-        cache[filename] = df.promise();
-        uploadcare.settings.waitForSettings(null, function(settings) {
-          var attempts, load, scriptBase, scriptExt, url;
-          scriptBase = settings.scriptBase, scriptExt = settings.scriptExt;
-          url = "" + scriptBase + "plugins/" + filename + scriptExt;
-          df.fail(function() {
-            return utils.warn("Couldn't load script " + url);
-          });
-          attempts = 0;
-          load = function() {
-            attempts++;
-            if (attempts > MAX_ATTEMPTS) {
-              return df.reject();
-            } else {
-              return $.getScript(url).done(df.resolve).fail(load);
-            }
-          };
-          return load();
-        });
-      }
-      return cache[filename];
-    };
-  });
-
-}).call(this);
-(function() {
   var $, namespace,
     __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
 
@@ -2101,8 +2302,7 @@ var _require = (function() {
       'cdn-base': 'http://www.ucarecdn.com',
       'url-base': 'https://upload.uploadcare.com',
       'social-base': 'https://social.uploadcare.com',
-      'script-base': typeof SCRIPT_BASE !== "undefined" && SCRIPT_BASE !== null ? SCRIPT_BASE : '',
-      'script-ext': '.min.js'
+      'script-base': typeof SCRIPT_BASE !== "undefined" && SCRIPT_BASE !== null ? SCRIPT_BASE : ''
     };
     presets = {
       'tabs': {
@@ -2289,11 +2489,11 @@ var _require = (function() {
         "default": 'Error',
         baddata: 'Incorrect value',
         size: 'File too big',
-        upload: 'Can’t upload',
+        upload: 'Canâ€™t upload',
         user: 'Upload canceled',
-        info: 'Can’t load info',
+        info: 'Canâ€™t load info',
         image: 'Only images allowed',
-        createGroup: 'Can’t create file group',
+        createGroup: 'Canâ€™t create file group',
         deleted: 'File was deleted'
       },
       draghere: 'Drop a file here',
@@ -2372,10 +2572,10 @@ var _require = (function() {
               }
             },
             multiple: {
-              title: 'You’ve chosen %files%',
+              title: 'Youâ€™ve chosen %files%',
               question: 'Do you want to add all of these files?',
-              tooManyFiles: 'You’ve chosen too many files. %max% is maximum.',
-              tooFewFiles: 'You’ve chosen %files%. At least %min% required.',
+              tooManyFiles: 'Youâ€™ve chosen too many files. %max% is maximum.',
+              tooFewFiles: 'Youâ€™ve chosen %files%. At least %min% required.',
               clear: 'Remove all',
               done: 'Done'
             }
@@ -2389,7 +2589,7 @@ var _require = (function() {
       crop: {
         error: {
           title: 'Error',
-          text: 'Can’t load image'
+          text: 'Canâ€™t load image'
         },
         done: 'Done'
       }
@@ -2412,17 +2612,17 @@ var _require = (function() {
     return ns.es = {
       ready: 'Subir desde',
       uploading: 'Subiendo... Por favor espere.',
-      loadingInfo: 'Cargando Información...',
+      loadingInfo: 'Cargando InformaciÃ³n...',
       errors: {
         "default": 'Error',
         baddata: 'Valor incorrecto',
         size: 'Demasiado grande',
         upload: 'No se ha podido subir',
         user: 'Subida cancelada',
-        info: 'No se pudo cargar la información',
-        image: 'Sólo se permiten imagenes'
+        info: 'No se pudo cargar la informaciÃ³n',
+        image: 'SÃ³lo se permiten imagenes'
       },
-      draghere: 'Arrastra los archivos hasta aquí',
+      draghere: 'Arrastra los archivos hasta aquÃ­',
       file: {
         one: '%1 archivo',
         other: '%1 archivos'
@@ -2435,7 +2635,7 @@ var _require = (function() {
       dialog: {
         tabs: {
           file: {
-            drag: 'Arrastra una archivo aquí',
+            drag: 'Arrastra una archivo aquÃ­',
             nodrop: 'Sube fotos desde tu computadora',
             or: 'o',
             button: 'Elige un archivo desde tu computadora',
@@ -2447,14 +2647,14 @@ var _require = (function() {
               instagram: 'Instagram',
               vk: 'VK',
               evernote: 'Evernote',
-              url: 'Una dirección cualquiera'
+              url: 'Una direcciÃ³n cualquiera'
             }
           },
           url: {
             title: 'Archivos de la web',
             line1: 'Selecciona cualquier archivo de la web.',
-            line2: 'Sólo danos el link.',
-            input: 'Copia tu link aquí...',
+            line2: 'SÃ³lo danos el link.',
+            input: 'Copia tu link aquÃ­...',
             button: 'Subir'
           },
           preview: {
@@ -2467,12 +2667,12 @@ var _require = (function() {
               done: 'Saltar vista previa y aceptar'
             },
             regular: {
-              title: '¿Quieres subir este archivo?',
-              line1: 'Estás por subir el archivo de arriba.',
+              title: 'Â¿Quieres subir este archivo?',
+              line1: 'EstÃ¡s por subir el archivo de arriba.',
               line2: 'Confirma por favor.'
             },
             image: {
-              title: '¿Quieres subir esta imagen?',
+              title: 'Â¿Quieres subir esta imagen?',
               change: 'Cancelar'
             },
             crop: {
@@ -2480,18 +2680,18 @@ var _require = (function() {
             },
             error: {
               "default": {
-                title: 'La subida falló',
+                title: 'La subida fallÃ³',
                 line1: 'Algo salio mal durante la subida.',
                 line2: 'Por favor, trata de nuevo.'
               },
               image: {
-                title: 'Sólo imagenes',
-                line1: 'Sólo se aceptan archivos de imagenes.',
+                title: 'SÃ³lo imagenes',
+                line1: 'SÃ³lo se aceptan archivos de imagenes.',
                 line2: 'Por favor, trata de nuevo con otro archivo.'
               },
               size: {
-                title: 'Límite de tamaño',
-                line1: 'El archivo que has seleccinado sobrepasa el límite de los 100MB.',
+                title: 'LÃ­mite de tamaÃ±o',
+                line1: 'El archivo que has seleccinado sobrepasa el lÃ­mite de los 100MB.',
                 line2: 'Por favor trata de nuevo con otro archivo.'
               }
             }
@@ -2534,13 +2734,13 @@ var _require = (function() {
         baddata: 'Valeur incorrecte',
         size: 'Fichier trop volumineux',
         upload: 'Envoi impossible',
-        user: 'Envoi annulé',
+        user: 'Envoi annulÃ©',
         info: 'Impossible de charger les informations',
-        image: 'Seules les images sont autorisées',
-        createGroup: 'Création d\'1 groupe impossible',
-        deleted: 'Le fichier a été supprimé'
+        image: 'Seules les images sont autorisÃ©es',
+        createGroup: 'CrÃ©ation d\'1 groupe impossible',
+        deleted: 'Le fichier a Ã©tÃ© supprimÃ©'
       },
-      draghere: 'Glissez-déposez un fichier ici',
+      draghere: 'Glissez-dÃ©posez un fichier ici',
       file: {
         one: '%1 fichier',
         other: '%1 fichiers'
@@ -2555,11 +2755,11 @@ var _require = (function() {
         showFiles: 'Voir les fichiers',
         tabs: {
           file: {
-            drag: 'Glissez-déposez un fichier ici',
+            drag: 'Glissez-dÃ©posez un fichier ici',
             nodrop: 'Envoyez des fichiers depuis votre ordinateur',
             or: 'ou',
             button: 'Choisissez un fichier depuis votre ordinateur',
-            also: 'Vous pouvez également le sélectionner depuis',
+            also: 'Vous pouvez Ã©galement le sÃ©lectionner depuis',
             tabNames: {
               facebook: 'Facebook',
               dropbox: 'Dropbox',
@@ -2583,12 +2783,12 @@ var _require = (function() {
             back: 'Retour',
             done: 'Ajouter',
             unknown: {
-              title: 'Envoi en cours... Merci de patientier pour prévisualiser.',
-              done: 'Passer la prévisualisation et accepter'
+              title: 'Envoi en cours... Merci de patientier pour prÃ©visualiser.',
+              done: 'Passer la prÃ©visualisation et accepter'
             },
             regular: {
               title: 'Ajouter ce fichier ?',
-              line1: 'Vous êtes sur le point d\'ajouter le fichier ci-dessus.',
+              line1: 'Vous Ãªtes sur le point d\'ajouter le fichier ci-dessus.',
               line2: 'Merci de confirmer.'
             },
             image: {
@@ -2602,16 +2802,16 @@ var _require = (function() {
             error: {
               "default": {
                 title: 'Oups!',
-                text: 'Quelque chose n\'a pas fonctionné pendant l\'envoi.',
+                text: 'Quelque chose n\'a pas fonctionnÃ© pendant l\'envoi.',
                 back: 'Merci de bien vouloir recommencer'
               },
               image: {
-                title: 'Seules les images sont acceptées.',
+                title: 'Seules les images sont acceptÃ©es.',
                 text: 'Merci de bien vouloir recommencer avec un autre fichier.',
                 back: 'Choisir une image'
               },
               size: {
-                title: 'Le fichier sélectionné est trop volumineux.',
+                title: 'Le fichier sÃ©lectionnÃ© est trop volumineux.',
                 text: 'Merci de bien vouloir recommencer avec un autre fichier.'
               }
             },
@@ -2652,13 +2852,13 @@ var _require = (function() {
 
   uploadcare.namespace('uploadcare.locale.translations', function(ns) {
     return ns.lv = {
-      ready: 'Izvēlieties failu',
-      uploading: 'Augšupielādē... Lūdzu, gaidiet.',
+      ready: 'IzvÄ“lieties failu',
+      uploading: 'AugÅ¡upielÄdÄ“... LÅ«dzu, gaidiet.',
       errors: {
-        "default": 'Kļūda',
-        image: 'Atļauti tikai attēli'
+        "default": 'KÄ¼Å«da',
+        image: 'AtÄ¼auti tikai attÄ“li'
       },
-      draghere: 'Velciet failus šeit',
+      draghere: 'Velciet failus Å¡eit',
       file: {
         zero: '%1 failu',
         one: '%1 fails',
@@ -2666,14 +2866,14 @@ var _require = (function() {
       },
       buttons: {
         cancel: 'Atcelt',
-        remove: 'Dzēst',
+        remove: 'DzÄ“st',
         file: 'Dators'
       },
       dialog: {
-        title: 'Ielādēt jebko no jebkurienes',
-        poweredby: 'Darbināts ar',
+        title: 'IelÄdÄ“t jebko no jebkurienes',
+        poweredby: 'DarbinÄts ar',
         support: {
-          images: 'Attēli',
+          images: 'AttÄ“li',
           audio: 'Audio',
           video: 'Video',
           documents: 'Dokumenti'
@@ -2681,16 +2881,16 @@ var _require = (function() {
         tabs: {
           file: {
             title: 'Mans dators',
-            line1: 'Paņemiet jebkuru failu no jūsu datora.',
-            line2: 'Izvēlēties ar dialogu vai ievelciet iekšā.',
-            button: 'Meklēt failus'
+            line1: 'PaÅ†emiet jebkuru failu no jÅ«su datora.',
+            line2: 'IzvÄ“lÄ“ties ar dialogu vai ievelciet iekÅ¡Ä.',
+            button: 'MeklÄ“t failus'
           },
           url: {
-            title: 'Faili no tīmekļa',
-            line1: 'Paņemiet jebkuru failu no tīmekļa.',
-            line2: 'Tikai uzrādiet linku.',
-            input: 'Ielīmējiet linku šeit...',
-            button: 'Ielādēt'
+            title: 'Faili no tÄ«mekÄ¼a',
+            line1: 'PaÅ†emiet jebkuru failu no tÄ«mekÄ¼a.',
+            line2: 'Tikai uzrÄdiet linku.',
+            input: 'IelÄ«mÄ“jiet linku Å¡eit...',
+            button: 'IelÄdÄ“t'
           }
         }
       }
@@ -2715,21 +2915,21 @@ var _require = (function() {
 
   uploadcare.namespace('uploadcare.locale.translations', function(ns) {
     return ns.pl = {
-      ready: 'Prześlij z',
-      uploading: 'Przesyłanie... Proszę czekać.',
+      ready: 'PrzeÅ›lij z',
+      uploading: 'PrzesyÅ‚anie... ProszÄ™ czekaÄ‡.',
       errors: {
-        "default": 'Błąd'
+        "default": 'BÅ‚Ä…d'
       },
-      draghere: 'Upuść plik tutaj',
+      draghere: 'UpuÅ›Ä‡ plik tutaj',
       buttons: {
         cancel: 'Anuluj',
-        remove: 'Usuń',
+        remove: 'UsuÅ„',
         file: 'Komputer'
       },
       dialog: {
         tabs: {
           file: {
-            title: 'Mój komputer'
+            title: 'MÃ³j komputer'
           },
           url: {
             title: 'Pliki z sieci'
@@ -2762,19 +2962,19 @@ var _require = (function() {
     return ns.pt = {
       ready: 'Fazer upload de',
       uploading: 'Fazendo upload... Aguarde.',
-      loadingInfo: 'Carregando informações...',
+      loadingInfo: 'Carregando informaÃ§Ãµes...',
       errors: {
         "default": 'Erro',
         baddata: 'Valor incorreto',
         size: 'Arquivo muito grande',
-        upload: 'Não foi possível fazer o upload',
+        upload: 'NÃ£o foi possÃ­vel fazer o upload',
         user: 'Upload cancelado',
-        info: 'Não foi possível carregar as informações',
-        image: 'Apenas imagens são permitidas',
-        createGroup: 'Não foi possível criar o grupo de arquivos',
-        deleted: 'O arquivo foi excluído'
+        info: 'NÃ£o foi possÃ­vel carregar as informaÃ§Ãµes',
+        image: 'Apenas imagens sÃ£o permitidas',
+        createGroup: 'NÃ£o foi possÃ­vel criar o grupo de arquivos',
+        deleted: 'O arquivo foi excluÃ­do'
       },
-      draghere: 'Arraste um arquivo para cá',
+      draghere: 'Arraste um arquivo para cÃ¡',
       file: {
         one: '%1 arquivo',
         other: '%1 arquivos'
@@ -2789,11 +2989,11 @@ var _require = (function() {
         showFiles: 'Mostrar arquivos',
         tabs: {
           file: {
-            drag: 'Arraste um arquivo para cá',
-            nodrop: 'Faça upload de arquivos do seu computador',
+            drag: 'Arraste um arquivo para cÃ¡',
+            nodrop: 'FaÃ§a upload de arquivos do seu computador',
             or: 'ou',
             button: 'Escolha um arquivo do computador',
-            also: 'Você também pode escolher arquivos de',
+            also: 'VocÃª tambÃ©m pode escolher arquivos de',
             tabNames: {
               facebook: 'Facebook',
               dropbox: 'Dropbox',
@@ -2806,7 +3006,7 @@ var _require = (function() {
           },
           url: {
             title: 'Arquivos da web',
-            line1: 'Faça upload de qualquer arquivo da web.',
+            line1: 'FaÃ§a upload de qualquer arquivo da web.',
             line2: 'Apenas informe o link.',
             input: 'Cole seu link aqui...',
             button: 'Upload'
@@ -2822,7 +3022,7 @@ var _require = (function() {
             },
             regular: {
               title: 'Adicionar esse arquivo?',
-              line1: 'Você está prestes a adicionar o arquivo acima.',
+              line1: 'VocÃª estÃ¡ prestes a adicionar o arquivo acima.',
               line2: 'Por favor, confirme.'
             },
             image: {
@@ -2840,18 +3040,18 @@ var _require = (function() {
                 back: 'Por favor, tente novamente'
               },
               image: {
-                title: 'Apenas arquivos de imagem são aceitos.',
+                title: 'Apenas arquivos de imagem sÃ£o aceitos.',
                 text: 'Por favor, tente novamente com outro arquivo.',
                 back: 'Escolher a imagem'
               },
               size: {
-                title: 'O arquivo que você escolheu excede o limite.',
+                title: 'O arquivo que vocÃª escolheu excede o limite.',
                 text: 'Por favor, tente novamente com outro arquivo.'
               }
             },
             multiple: {
-              title: 'Você escolheu',
-              question: 'Você quer adicionar todos esses arquivos?',
+              title: 'VocÃª escolheu',
+              question: 'VocÃª quer adicionar todos esses arquivos?',
               clear: 'Excluir todos',
               done: 'OK'
             }
@@ -2865,7 +3065,7 @@ var _require = (function() {
       crop: {
         error: {
           title: 'Erro',
-          text: 'Não foi possível carregar a imagem'
+          text: 'NÃ£o foi possÃ­vel carregar a imagem'
         },
         done: 'OK'
       }
@@ -2887,118 +3087,118 @@ var _require = (function() {
 
   uploadcare.namespace('uploadcare.locale.translations', function(ns) {
     return ns.ru = {
-      ready: 'Выберите файл',
-      uploading: 'Идет загрузка',
-      loadingInfo: 'Загрузка информации...',
+      ready: 'Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ñ„Ð°Ð¹Ð»',
+      uploading: 'Ð˜Ð´ÐµÑ‚ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ°',
+      loadingInfo: 'Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð¸Ð½Ñ„Ð¾Ñ€Ð¼Ð°Ñ†Ð¸Ð¸...',
       errors: {
-        "default": 'Ошибка',
-        baddata: 'Некорректные данные',
-        size: 'Слишком большой файл',
-        upload: 'Ошибка при загрузке',
-        user: 'Загрузка прервана',
-        info: 'Ошибка при загрузке информации',
-        image: 'Разрешены только изображения',
-        createGroup: 'Не удалось создать группу файлов',
-        deleted: 'Файл удалён'
+        "default": 'ÐžÑˆÐ¸Ð±ÐºÐ°',
+        baddata: 'ÐÐµÐºÐ¾Ñ€Ñ€ÐµÐºÑ‚Ð½Ñ‹Ðµ Ð´Ð°Ð½Ð½Ñ‹Ðµ',
+        size: 'Ð¡Ð»Ð¸ÑˆÐºÐ¾Ð¼ Ð±Ð¾Ð»ÑŒÑˆÐ¾Ð¹ Ñ„Ð°Ð¹Ð»',
+        upload: 'ÐžÑˆÐ¸Ð±ÐºÐ° Ð¿Ñ€Ð¸ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐµ',
+        user: 'Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ð¿Ñ€ÐµÑ€Ð²Ð°Ð½Ð°',
+        info: 'ÐžÑˆÐ¸Ð±ÐºÐ° Ð¿Ñ€Ð¸ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐµ Ð¸Ð½Ñ„Ð¾Ñ€Ð¼Ð°Ñ†Ð¸Ð¸',
+        image: 'Ð Ð°Ð·Ñ€ÐµÑˆÐµÐ½Ñ‹ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ',
+        createGroup: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ ÑÐ¾Ð·Ð´Ð°Ñ‚ÑŒ Ð³Ñ€ÑƒÐ¿Ð¿Ñƒ Ñ„Ð°Ð¹Ð»Ð¾Ð²',
+        deleted: 'Ð¤Ð°Ð¹Ð» ÑƒÐ´Ð°Ð»Ñ‘Ð½'
       },
-      draghere: 'Перетащите файл сюда',
+      draghere: 'ÐŸÐµÑ€ÐµÑ‚Ð°Ñ‰Ð¸Ñ‚Ðµ Ñ„Ð°Ð¹Ð» ÑÑŽÐ´Ð°',
       file: {
-        one: '%1 файл',
-        few: '%1 файла',
-        many: '%1 файлов',
-        other: '%1 файла'
+        one: '%1 Ñ„Ð°Ð¹Ð»',
+        few: '%1 Ñ„Ð°Ð¹Ð»Ð°',
+        many: '%1 Ñ„Ð°Ð¹Ð»Ð¾Ð²',
+        other: '%1 Ñ„Ð°Ð¹Ð»Ð°'
       },
       buttons: {
-        cancel: 'Отмена',
-        remove: 'Удалить',
-        file: 'Компьютер'
+        cancel: 'ÐžÑ‚Ð¼ÐµÐ½Ð°',
+        remove: 'Ð£Ð´Ð°Ð»Ð¸Ñ‚ÑŒ',
+        file: 'ÐšÐ¾Ð¼Ð¿ÑŒÑŽÑ‚ÐµÑ€'
       },
       dialog: {
-        done: 'Готово',
-        showFiles: 'Показать файлы',
+        done: 'Ð“Ð¾Ñ‚Ð¾Ð²Ð¾',
+        showFiles: 'ÐŸÐ¾ÐºÐ°Ð·Ð°Ñ‚ÑŒ Ñ„Ð°Ð¹Ð»Ñ‹',
         tabs: {
           file: {
-            drag: 'Перетащите файл сюда',
-            nodrop: 'Загрузка файлов с вашего компьютера',
-            or: 'или',
-            button: 'Выберите файл с компьютера',
-            also: 'Вы также можете загрузить файлы, используя:',
+            drag: 'ÐŸÐµÑ€ÐµÑ‚Ð°Ñ‰Ð¸Ñ‚Ðµ Ñ„Ð°Ð¹Ð» ÑÑŽÐ´Ð°',
+            nodrop: 'Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ° Ñ„Ð°Ð¹Ð»Ð¾Ð² Ñ Ð²Ð°ÑˆÐµÐ³Ð¾ ÐºÐ¾Ð¼Ð¿ÑŒÑŽÑ‚ÐµÑ€Ð°',
+            or: 'Ð¸Ð»Ð¸',
+            button: 'Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ñ„Ð°Ð¹Ð» Ñ ÐºÐ¾Ð¼Ð¿ÑŒÑŽÑ‚ÐµÑ€Ð°',
+            also: 'Ð’Ñ‹ Ñ‚Ð°ÐºÐ¶Ðµ Ð¼Ð¾Ð¶ÐµÑ‚Ðµ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ñ„Ð°Ð¹Ð»Ñ‹, Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÑ:',
             tabNames: {
               facebook: 'Facebook',
               dropbox: 'Dropbox',
               gdrive: 'Google Drive',
               instagram: 'Instagram',
-              vk: 'ВКонтакте',
+              vk: 'Ð’ÐšÐ¾Ð½Ñ‚Ð°ÐºÑ‚Ðµ',
               evernote: 'Evernote',
-              url: 'Произвольную ссылку'
+              url: 'ÐŸÑ€Ð¾Ð¸Ð·Ð²Ð¾Ð»ÑŒÐ½ÑƒÑŽ ÑÑÑ‹Ð»ÐºÑƒ'
             }
           },
           url: {
-            title: 'Файлы с других сайтов',
-            line1: 'Загрузите любой файл из сети.',
+            title: 'Ð¤Ð°Ð¹Ð»Ñ‹ Ñ Ð´Ñ€ÑƒÐ³Ð¸Ñ… ÑÐ°Ð¹Ñ‚Ð¾Ð²',
+            line1: 'Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚Ðµ Ð»ÑŽÐ±Ð¾Ð¹ Ñ„Ð°Ð¹Ð» Ð¸Ð· ÑÐµÑ‚Ð¸.',
             line2: '',
-            input: 'Укажите здесь ссылку...',
-            button: 'Загрузить'
+            input: 'Ð£ÐºÐ°Ð¶Ð¸Ñ‚Ðµ Ð·Ð´ÐµÑÑŒ ÑÑÑ‹Ð»ÐºÑƒ...',
+            button: 'Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ'
           },
           preview: {
-            unknownName: 'неизвестно',
-            change: 'Отмена',
-            back: 'Назад',
-            done: 'Добавить',
+            unknownName: 'Ð½ÐµÐ¸Ð·Ð²ÐµÑÑ‚Ð½Ð¾',
+            change: 'ÐžÑ‚Ð¼ÐµÐ½Ð°',
+            back: 'ÐÐ°Ð·Ð°Ð´',
+            done: 'Ð”Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ',
             unknown: {
-              title: 'Загрузка... Пожалуйста подождите.',
-              done: 'Пропустить предварительный просмотр'
+              title: 'Ð—Ð°Ð³Ñ€ÑƒÐ·ÐºÐ°... ÐŸÐ¾Ð¶Ð°Ð»ÑƒÐ¹ÑÑ‚Ð° Ð¿Ð¾Ð´Ð¾Ð¶Ð´Ð¸Ñ‚Ðµ.',
+              done: 'ÐŸÑ€Ð¾Ð¿ÑƒÑÑ‚Ð¸Ñ‚ÑŒ Ð¿Ñ€ÐµÐ´Ð²Ð°Ñ€Ð¸Ñ‚ÐµÐ»ÑŒÐ½Ñ‹Ð¹ Ð¿Ñ€Ð¾ÑÐ¼Ð¾Ñ‚Ñ€'
             },
             regular: {
-              title: 'Загрузить этот файл?',
-              line1: 'Вы собираетесь добавить этот файл:',
-              line2: 'Пожалуйста, подтвердите.'
+              title: 'Ð—Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ ÑÑ‚Ð¾Ñ‚ Ñ„Ð°Ð¹Ð»?',
+              line1: 'Ð’Ñ‹ ÑÐ¾Ð±Ð¸Ñ€Ð°ÐµÑ‚ÐµÑÑŒ Ð´Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ ÑÑ‚Ð¾Ñ‚ Ñ„Ð°Ð¹Ð»:',
+              line2: 'ÐŸÐ¾Ð¶Ð°Ð»ÑƒÐ¹ÑÑ‚Ð°, Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð´Ð¸Ñ‚Ðµ.'
             },
             image: {
-              title: 'Добавить это изображение?',
-              change: 'Отмена'
+              title: 'Ð”Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ ÑÑ‚Ð¾ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ?',
+              change: 'ÐžÑ‚Ð¼ÐµÐ½Ð°'
             },
             crop: {
-              title: 'Обрезать и добавить это изображение',
-              done: 'Готово'
+              title: 'ÐžÐ±Ñ€ÐµÐ·Ð°Ñ‚ÑŒ Ð¸ Ð´Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ ÑÑ‚Ð¾ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ',
+              done: 'Ð“Ð¾Ñ‚Ð¾Ð²Ð¾'
             },
             error: {
               "default": {
-                title: 'Ой!',
-                text: 'Что-то пошло не так во время загрузки.',
-                back: 'Пожалуйста, попробуйте ещё раз'
+                title: 'ÐžÐ¹!',
+                text: 'Ð§Ñ‚Ð¾-Ñ‚Ð¾ Ð¿Ð¾ÑˆÐ»Ð¾ Ð½Ðµ Ñ‚Ð°Ðº Ð²Ð¾ Ð²Ñ€ÐµÐ¼Ñ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸.',
+                back: 'ÐŸÐ¾Ð¶Ð°Ð»ÑƒÐ¹ÑÑ‚Ð°, Ð¿Ð¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ ÐµÑ‰Ñ‘ Ñ€Ð°Ð·'
               },
               image: {
-                title: 'Можно загружать только изображения.',
-                text: 'Попробуйте загрузить другой файл.',
-                back: 'Выберите изображение'
+                title: 'ÐœÐ¾Ð¶Ð½Ð¾ Ð·Ð°Ð³Ñ€ÑƒÐ¶Ð°Ñ‚ÑŒ Ñ‚Ð¾Ð»ÑŒÐºÐ¾ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ñ.',
+                text: 'ÐŸÐ¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð´Ñ€ÑƒÐ³Ð¾Ð¹ Ñ„Ð°Ð¹Ð».',
+                back: 'Ð’Ñ‹Ð±ÐµÑ€Ð¸Ñ‚Ðµ Ð¸Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ'
               },
               size: {
-                title: 'Размер выбранного файла превышает лимит.',
-                text: 'Попробуйте загрузить другой файл.'
+                title: 'Ð Ð°Ð·Ð¼ÐµÑ€ Ð²Ñ‹Ð±Ñ€Ð°Ð½Ð½Ð¾Ð³Ð¾ Ñ„Ð°Ð¹Ð»Ð° Ð¿Ñ€ÐµÐ²Ñ‹ÑˆÐ°ÐµÑ‚ Ð»Ð¸Ð¼Ð¸Ñ‚.',
+                text: 'ÐŸÐ¾Ð¿Ñ€Ð¾Ð±ÑƒÐ¹Ñ‚Ðµ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð´Ñ€ÑƒÐ³Ð¾Ð¹ Ñ„Ð°Ð¹Ð».'
               }
             },
             multiple: {
-              title: 'Вы выбрали %files%',
-              question: 'Вы хотите добавить все эти файлы?',
-              tooManyFiles: 'Вы выбрали слишком много файлов. %max% максимум.',
-              tooFewFiles: 'Вы выбрали %files%. Нужно не меньше %min%.',
-              clear: 'Удалить все',
-              done: 'Готово'
+              title: 'Ð’Ñ‹ Ð²Ñ‹Ð±Ñ€Ð°Ð»Ð¸ %files%',
+              question: 'Ð’Ñ‹ Ñ…Ð¾Ñ‚Ð¸Ñ‚Ðµ Ð´Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ Ð²ÑÐµ ÑÑ‚Ð¸ Ñ„Ð°Ð¹Ð»Ñ‹?',
+              tooManyFiles: 'Ð’Ñ‹ Ð²Ñ‹Ð±Ñ€Ð°Ð»Ð¸ ÑÐ»Ð¸ÑˆÐºÐ¾Ð¼ Ð¼Ð½Ð¾Ð³Ð¾ Ñ„Ð°Ð¹Ð»Ð¾Ð². %max% Ð¼Ð°ÐºÑÐ¸Ð¼ÑƒÐ¼.',
+              tooFewFiles: 'Ð’Ñ‹ Ð²Ñ‹Ð±Ñ€Ð°Ð»Ð¸ %files%. ÐÑƒÐ¶Ð½Ð¾ Ð½Ðµ Ð¼ÐµÐ½ÑŒÑˆÐµ %min%.',
+              clear: 'Ð£Ð´Ð°Ð»Ð¸Ñ‚ÑŒ Ð²ÑÐµ',
+              done: 'Ð“Ð¾Ñ‚Ð¾Ð²Ð¾'
             }
           }
         },
         footer: {
-          text: 'Для загрузки, хранения и обработки файлов используется',
+          text: 'Ð”Ð»Ñ Ð·Ð°Ð³Ñ€ÑƒÐ·ÐºÐ¸, Ñ…Ñ€Ð°Ð½ÐµÐ½Ð¸Ñ Ð¸ Ð¾Ð±Ñ€Ð°Ð±Ð¾Ñ‚ÐºÐ¸ Ñ„Ð°Ð¹Ð»Ð¾Ð² Ð¸ÑÐ¿Ð¾Ð»ÑŒÐ·ÑƒÐµÑ‚ÑÑ',
           link: 'Uploadcare.com'
         }
       },
       crop: {
         error: {
-          title: 'Ошибка',
-          text: 'Изображение не удалось загрузить'
+          title: 'ÐžÑˆÐ¸Ð±ÐºÐ°',
+          text: 'Ð˜Ð·Ð¾Ð±Ñ€Ð°Ð¶ÐµÐ½Ð¸Ðµ Ð½Ðµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ'
         },
-        done: 'ОК'
+        done: 'ÐžÐš'
       }
     };
   });
@@ -3024,39 +3224,39 @@ var _require = (function() {
 
   uploadcare.namespace('uploadcare.locale.translations', function(ns) {
     return ns.zh = {
-      ready: '上传自',
-      uploading: '上传中...请等待',
-      loadingInfo: '正在读取信息...',
+      ready: 'ä¸Šä¼ è‡ª',
+      uploading: 'ä¸Šä¼ ä¸­...è¯·ç­‰å¾…',
+      loadingInfo: 'æ­£åœ¨è¯»å–ä¿¡æ¯...',
       errors: {
-        "default": '错误',
-        baddata: '错误数据',
-        size: '文件太大',
-        upload: '无法上传',
-        user: '上传被取消',
-        info: '无法读取信息',
-        image: '只允许图形文件',
-        createGroup: '无法建立文件组',
-        deleted: '文件已被删除'
+        "default": 'é”™è¯¯',
+        baddata: 'é”™è¯¯æ•°æ®',
+        size: 'æ–‡ä»¶å¤ªå¤§',
+        upload: 'æ— æ³•ä¸Šä¼ ',
+        user: 'ä¸Šä¼ è¢«å–æ¶ˆ',
+        info: 'æ— æ³•è¯»å–ä¿¡æ¯',
+        image: 'åªå…è®¸å›¾å½¢æ–‡ä»¶',
+        createGroup: 'æ— æ³•å»ºç«‹æ–‡ä»¶ç»„',
+        deleted: 'æ–‡ä»¶å·²è¢«åˆ é™¤'
       },
-      draghere: '拖放文件到这里',
+      draghere: 'æ‹–æ”¾æ–‡ä»¶åˆ°è¿™é‡Œ',
       file: {
-        other: '%1 个文件'
+        other: '%1 ä¸ªæ–‡ä»¶'
       },
       buttons: {
-        cancel: '取消',
-        remove: '删除',
-        file: '计算机'
+        cancel: 'å–æ¶ˆ',
+        remove: 'åˆ é™¤',
+        file: 'è®¡ç®—æœº'
       },
       dialog: {
-        done: '完成',
-        showFiles: '显示文件',
+        done: 'å®Œæˆ',
+        showFiles: 'æ˜¾ç¤ºæ–‡ä»¶',
         tabs: {
           file: {
-            drag: '拖放文件到这里',
-            nodrop: '从你的电脑中上传',
-            or: '或者',
-            button: '从电脑中选取文件',
-            also: '你也可以选自',
+            drag: 'æ‹–æ”¾æ–‡ä»¶åˆ°è¿™é‡Œ',
+            nodrop: 'ä»Žä½ çš„ç”µè„‘ä¸­ä¸Šä¼ ',
+            or: 'æˆ–è€…',
+            button: 'ä»Žç”µè„‘ä¸­é€‰å–æ–‡ä»¶',
+            also: 'ä½ ä¹Ÿå¯ä»¥é€‰è‡ª',
             tabNames: {
               facebook: 'Facebook',
               dropbox: 'Dropbox',
@@ -3064,74 +3264,74 @@ var _require = (function() {
               instagram: 'Instagram',
               vk: 'VK',
               evernote: 'Evernote',
-              url: '任意图片链接'
+              url: 'ä»»æ„å›¾ç‰‡é“¾æŽ¥'
             }
           },
           url: {
-            title: '来自互联网的文件',
-            line1: '从互联网选取文件',
-            line2: '只需提供链接',
-            input: '将链接拷贝至此...',
-            button: '上传'
+            title: 'æ¥è‡ªäº’è”ç½‘çš„æ–‡ä»¶',
+            line1: 'ä»Žäº’è”ç½‘é€‰å–æ–‡ä»¶',
+            line2: 'åªéœ€æä¾›é“¾æŽ¥',
+            input: 'å°†é“¾æŽ¥æ‹·è´è‡³æ­¤...',
+            button: 'ä¸Šä¼ '
           },
           preview: {
-            unknownName: '未知',
-            change: '取消',
-            back: '返回',
-            done: '添加',
+            unknownName: 'æœªçŸ¥',
+            change: 'å–æ¶ˆ',
+            back: 'è¿”å›ž',
+            done: 'æ·»åŠ ',
             unknown: {
-              title: '上传中...请等待预览',
-              done: '跳过预览，直接接受'
+              title: 'ä¸Šä¼ ä¸­...è¯·ç­‰å¾…é¢„è§ˆ',
+              done: 'è·³è¿‡é¢„è§ˆï¼Œç›´æŽ¥æŽ¥å—'
             },
             regular: {
-              title: '添加这个文件?',
-              line1: '你将添加上面的文件。',
-              line2: '请确认。'
+              title: 'æ·»åŠ è¿™ä¸ªæ–‡ä»¶?',
+              line1: 'ä½ å°†æ·»åŠ ä¸Šé¢çš„æ–‡ä»¶ã€‚',
+              line2: 'è¯·ç¡®è®¤ã€‚'
             },
             image: {
-              title: '添加这个图片?',
-              change: '取消'
+              title: 'æ·»åŠ è¿™ä¸ªå›¾ç‰‡?',
+              change: 'å–æ¶ˆ'
             },
             crop: {
-              title: '剪裁并添加这个图片',
-              done: '完成'
+              title: 'å‰ªè£å¹¶æ·»åŠ è¿™ä¸ªå›¾ç‰‡',
+              done: 'å®Œæˆ'
             },
             error: {
               "default": {
-                title: '错误!',
-                text: '上传过程中出错。',
-                back: '请重试'
+                title: 'é”™è¯¯!',
+                text: 'ä¸Šä¼ è¿‡ç¨‹ä¸­å‡ºé”™ã€‚',
+                back: 'è¯·é‡è¯•'
               },
               image: {
-                title: '只允许上传图片文件。',
-                text: '请选择其他文件重新上传。',
-                back: '选择图片'
+                title: 'åªå…è®¸ä¸Šä¼ å›¾ç‰‡æ–‡ä»¶ã€‚',
+                text: 'è¯·é€‰æ‹©å…¶ä»–æ–‡ä»¶é‡æ–°ä¸Šä¼ ã€‚',
+                back: 'é€‰æ‹©å›¾ç‰‡'
               },
               size: {
-                title: '你选取的文件超过了100MB的上限',
-                text: '请用另一个文件再试一次。'
+                title: 'ä½ é€‰å–çš„æ–‡ä»¶è¶…è¿‡äº†100MBçš„ä¸Šé™',
+                text: 'è¯·ç”¨å¦ä¸€ä¸ªæ–‡ä»¶å†è¯•ä¸€æ¬¡ã€‚'
               }
             },
             multiple: {
-              title: '你已经选择 %files%',
-              question: '你要添加所有文件吗？',
-              tooManyFiles: '你选了太多的文件. 最多可选择%max%. 请删除一些。',
-              clear: '清空',
-              done: '完成'
+              title: 'ä½ å·²ç»é€‰æ‹© %files%',
+              question: 'ä½ è¦æ·»åŠ æ‰€æœ‰æ–‡ä»¶å—ï¼Ÿ',
+              tooManyFiles: 'ä½ é€‰äº†å¤ªå¤šçš„æ–‡ä»¶. æœ€å¤šå¯é€‰æ‹©%max%. è¯·åˆ é™¤ä¸€äº›ã€‚',
+              clear: 'æ¸…ç©º',
+              done: 'å®Œæˆ'
             }
           }
         },
         footer: {
-          text: '为您提供文件上传、存储和编辑功能。 Copyright ©',
+          text: 'ä¸ºæ‚¨æä¾›æ–‡ä»¶ä¸Šä¼ ã€å­˜å‚¨å’Œç¼–è¾‘åŠŸèƒ½ã€‚ Copyright Â©',
           link: 'Uploadcare.com'
         }
       },
       crop: {
         error: {
-          title: '错误',
-          text: '无法读取图片'
+          title: 'é”™è¯¯',
+          text: 'æ— æ³•è¯»å–å›¾ç‰‡'
         },
-        done: '完成'
+        done: 'å®Œæˆ'
       }
     };
   });
@@ -3219,7 +3419,7 @@ var _require = (function() {
 }).call(this);
 (function() {
   this.JST || (this.JST = {});
-  this.JST["uploadcare/templates/dialog"] = function(obj){var __p=[],print=function(){__p.push.apply(__p,arguments);};with(obj||{}){__p.push('<div class="uploadcare-dialog">\n    <div class="uploadcare-dialog-inner-wrap1">\n    <div class="uploadcare-dialog-inner-wrap2">\n        <div class="uploadcare-dialog-close">\n            <div role="uploadcare-dialog-close">&times;</div>\n        </div>\n        <div class="uploadcare-dialog-panel-wrap">\n            <div class="uploadcare-dialog-panel">\n                <div class="uploadcare-dialog-body">\n                    <div class="uploadcare-dialog-tabs" role="uploadcare-dialog-tabs"></div>\n                </div>\n            </div>\n            <div class="uploadcare-dialog-footer">\n                ',(''+ t('dialog.footer.text') ).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g,'&#x2F;'),'\n                <a href="https://uploadcare.com/" target="_blank">',(''+ t('dialog.footer.link') ).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g,'&#x2F;'),'</a>\n            </div>\n        </div>\n    </div>\n    </div>\n</div>\n');}return __p.join('');};
+  this.JST["uploadcare/templates/dialog"] = function(obj){var __p=[],print=function(){__p.push.apply(__p,arguments);};with(obj||{}){__p.push('<div class="uploadcare-dialog">\n    <div class="uploadcare-dialog-inner-wrap1">\n    <div class="uploadcare-dialog-inner-wrap2">\n        <div class="uploadcare-dialog-close" role="uploadcare-dialog-close">&times;</div>\n        <div class="uploadcare-dialog-panel">\n            <div class="uploadcare-dialog-tabs" role="uploadcare-dialog-tabs"></div>\n        </div>\n        <div class="uploadcare-dialog-footer">\n            ',(''+ t('dialog.footer.text') ).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g,'&#x2F;'),'\n            <a href="https://uploadcare.com/" target="_blank">',(''+ t('dialog.footer.link') ).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#x27;').replace(/\//g,'&#x2F;'),'</a>\n        </div>\n    </div>\n    </div>\n</div>\n');}return __p.join('');};
 }).call(this);
 (function() {
   this.JST || (this.JST = {});
@@ -3227,7 +3427,7 @@ var _require = (function() {
 }).call(this);
 (function() {
   this.JST || (this.JST = {});
-  this.JST["uploadcare/templates/styles"] = function(obj){var __p=[],print=function(){__p.push.apply(__p,arguments);};with(obj||{}){__p.push('\n\n\n\n\n\n.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab:after,.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab:hover:after,.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-disabled-tab:hover:after{background-image:url("',  utils.imagePath('tab-icons.png') ,'")}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-selected-tab:after{background-image:url("',  utils.imagePath('tab-icons-active.png') ,'")}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-file,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-image:url("',  utils.imagePath('buttons.png') ,'")}.uploadcare-crop-widget .jcrop-vline,.uploadcare-crop-widget .jcrop-hline{background-image:url("',  utils.imagePath('crop-border-bg.gif') ,'")}.uploadcare-dialog-file-sources:before{background-image:url("',  utils.imagePath('arrow.png') ,'")}.uploadcare-crop-widget--loading{background-image:url("',  utils.imagePath('loading-spinner.gif') ,'")}.uploadcare-dpm-file-remove{background-image:url("',  utils.imagePath('remove-button.png') ,'")}.uploadcare-dpm-file-error:before{background-image:url("',  utils.imagePath('error-icon.png') ,'")}.uploadcare-dpm-file-name:before{background-image:url("',  utils.imagePath('file-icon.png') ,'")}.uloadcare-dialog-error-tab-illustration{background-image:url("',  utils.imagePath('error-default.png') ,'")}.uloadcare-dialog-error-tab-image .uloadcare-dialog-error-tab-illustration{background-image:url("',  utils.imagePath('error-image.png') ,'")}.uploadcare-dialog{background:url("',  utils.imagePath('dialog-overlay.png') ,'");background:rgba(48,48,48,0.95)}.uploadcare-dialog{font-family:"Helvetica Neue",Helvetica,Arial,"Lucida Grande",sans-serif;position:fixed;left:0;top:0;width:100%;height:100%;z-index:10000;overflow:auto}.uploadcare-dialog *{margin:0;padding:0}.uploadcare-dialog-inner-wrap1{display:table;width:100%;height:100%}.uploadcare-dialog-inner-wrap2{display:table-cell;vertical-align:middle}.uploadcare-dialog-close{position:absolute;top:4px;left:0;width:100%;min-width:988px}.uploadcare-dialog-close>div{margin:0;padding:0;border:none;background:none;width:33px;height:33px;line-height:33px;font-size:29.7px;font-weight:bold;color:#1d1d1d;cursor:pointer;position:absolute;right:0;top:0}.uploadcare-dialog-panel-wrap{margin:0 auto;width:900px;padding:0 44px}.uploadcare-dialog-panel{width:900px;height:616px;overflow:hidden;border-radius:8px;background:#fff;-ms-box-shadow:0 1px 2px rgba(0,0,0,0.35);-moz-box-shadow:0 1px 2px rgba(0,0,0,0.35);-webkit-box-shadow:0 1px 2px rgba(0,0,0,0.35);-o-box-shadow:0 1px 2px rgba(0,0,0,0.35);box-shadow:0 1px 2px rgba(0,0,0,0.35);font-weight:normal}.uploadcare-dialog-panel a{text-decoration:none;border-bottom:1px dotted}.uploadcare-dialog-panel a:link,.uploadcare-dialog-panel a:visited{color:#1a85ad;border-bottom-color:#1a85ad}.uploadcare-dialog-panel a:hover,.uploadcare-dialog-panel a:active{color:#252525;border-bottom-color:#252525}.uploadcare-dialog-body .uploadcare-dialog-tabs{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:75px;height:616px;float:left;list-style:none;list-style-type:none;margin:0;padding:0;background:#dee0e1;border-bottom-left-radius:8px;border-top-left-radius:8px;overflow:hidden;position:relative}.uploadcare-dialog-body .uploadcare-dialog-tabs:before{content:\'\';display:block;position:absolute;top:0;right:0;bottom:0;width:0;border-left:1px solid #c5cace}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:75px;height:66px;border-bottom:1px solid #c5cace;border-right:1px solid #c5cace;cursor:pointer;position:relative}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab:after{content:\'\';display:block;position:absolute;width:50px;height:50px;top:50%;left:50%;margin-top:-25px;margin-left:-25px;border:none;opacity:.66}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab:hover{background-color:#e5e7e8}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab:hover:after{opacity:1}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-selected-tab{margin-right:-1px;border-right:1px solid #efefef}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-selected-tab,.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-selected-tab:hover{background-color:#efefef}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-selected-tab:after{opacity:1}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-disabled-tab{cursor:default}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-disabled-tab:hover{background-color:#dee0e1}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-preview:after{display:none}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-file:after{background-position:0 -50px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-url:after{background-position:0 -100px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-facebook:after{background-position:0 -150px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-dropbox:after{background-position:0 -200px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-gdrive:after{background-position:0 -250px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-instagram:after{background-position:0 -300px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-vk:after{background-position:0 -350px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-tab-evernote:after{background-position:0 -400px}.uploadcare-dialog-body .uploadcare-dialog-tabs .uploadcare-dialog-tab.uploadcare-dialog-first-tab{border-top-left-radius:8px}.uploadcare-dialog-body .uploadcare-dialog-tabs-panel{position:relative;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;margin-left:75px;padding:22px 25px;width:825px;height:616px;line-height:22px;background:#efefef;border-bottom-right-radius:8px;border-top-right-radius:8px;font-size:16px;color:black}.uploadcare-dialog-body .uploadcare-dialog-tabs-panel input{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:100%;height:44px;margin-bottom:22px;padding:11px 12.5px;font-family:inherit;font-size:16px;border:1px solid #c5cace;background:white;color:black}.uploadcare-dialog-body .uploadcare-dialog-tabs-panel .uploadcare-dialog-drop-file{background:white;border:1px dashed #c5cace;border-radius:3px;height:99px;padding-top:77px;text-align:center;color:#545454}.uploadcare-dialog-body .uploadcare-pre{white-space:pre;font-family:monospace;margin:22px auto;padding:22px 25px;background-color:white;border:1px solid #c5cace;border-radius:3px;text-align:left;font-size:15px;line-height:22px}.uploadcare-dialog-footer{font-size:13px;text-align:center;color:#888;margin-top:15px}.uploadcare-dialog-footer a{color:#c2c2c2;text-decoration:none}.uploadcare-dialog-footer a:hover{text-decoration:underline}.uploadcare-dialog-title{font-size:25px;line-height:1;margin-bottom:25px}.uploadcare-dialog-title2{font-size:20px;line-height:1;padding-bottom:11px}.uploadcare-dialog-big-title{font-size:40px;font-weight:bold;line-height:1em;margin-bottom:50px}.uploadcare-dialog-label{font-size:15px;line-height:25px;margin-bottom:12.5px}.uploadcare-dialog-large-text{font-size:20px;font-weight:normal;line-height:1.5em}.uploadcare-dialog-large-text .uploadcare-pre{display:inline-block;font-size:18px}.uploadcare-dialog-section{margin-bottom:22px}.uploadcare-dialog-normal-text{font-size:13px;color:#545454}.uploadcare-dialog-button{display:inline-block;font-size:13px;line-height:31px;padding:0 22px;margin-right:.5em;border:solid 1px;border-radius:3px;cursor:pointer;color:#444}.uploadcare-dialog-button,.uploadcare-dialog-button[disabled]:active,.uploadcare-dialog-button.uploadcare-disabled-el:active,.uploadcare-dialog-button[disabled]:hover,.uploadcare-dialog-button.uploadcare-disabled-el:hover{background:#f3f3f3;background:-webkit-linear-gradient(whitesmoke,#f1f1f1);background:-moz-linear-gradient(whitesmoke,#f1f1f1);background:-o-linear-gradient(whitesmoke,#f1f1f1);background:linear-gradient(whitesmoke,#f1f1f1);-ms-box-shadow:none;-moz-box-shadow:none;-webkit-box-shadow:none;-o-box-shadow:none;box-shadow:none;border-color:gainsboro}.uploadcare-dialog-button:hover{background:#f8f8f8;background:-webkit-linear-gradient(#fbfbfb,#f6f6f6);background:-moz-linear-gradient(#fbfbfb,#f6f6f6);background:-o-linear-gradient(#fbfbfb,#f6f6f6);background:linear-gradient(#fbfbfb,#f6f6f6);-ms-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-o-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05)}.uploadcare-dialog-button:active{background:#f3f3f3;background:-webkit-linear-gradient(whitesmoke,#f1f1f1);background:-moz-linear-gradient(whitesmoke,#f1f1f1);background:-o-linear-gradient(whitesmoke,#f1f1f1);background:linear-gradient(whitesmoke,#f1f1f1);-ms-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-o-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);box-shadow:inset 0 2px 2px rgba(0,0,0,0.05)}.uploadcare-dialog-button[disabled],.uploadcare-dialog-button.uploadcare-disabled-el{cursor:default;opacity:.6}.uploadcare-dialog-button:active,.uploadcare-dialog-button:hover{border-color:#cbcbcb}.uploadcare-dialog-button-success{display:inline-block;font-size:13px;line-height:31px;padding:0 22px;margin-right:.5em;border:solid 1px;border-radius:3px;cursor:pointer;color:white}.uploadcare-dialog-button-success,.uploadcare-dialog-button-success[disabled]:active,.uploadcare-dialog-button-success.uploadcare-disabled-el:active,.uploadcare-dialog-button-success[disabled]:hover,.uploadcare-dialog-button-success.uploadcare-disabled-el:hover{background:#3786eb;background:-webkit-linear-gradient(#3b8df7,#347fdf);background:-moz-linear-gradient(#3b8df7,#347fdf);background:-o-linear-gradient(#3b8df7,#347fdf);background:linear-gradient(#3b8df7,#347fdf);-ms-box-shadow:none;-moz-box-shadow:none;-webkit-box-shadow:none;-o-box-shadow:none;box-shadow:none;border-color:#266fcb}.uploadcare-dialog-button-success:hover{background:#3279d6;background:-webkit-linear-gradient(#3986ea,#2c6dc2);background:-moz-linear-gradient(#3986ea,#2c6dc2);background:-o-linear-gradient(#3986ea,#2c6dc2);background:linear-gradient(#3986ea,#2c6dc2);-ms-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-o-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05)}.uploadcare-dialog-button-success:active{background:#3177d3;background:-webkit-linear-gradient(#3680e1,#2c6fc5);background:-moz-linear-gradient(#3680e1,#2c6fc5);background:-o-linear-gradient(#3680e1,#2c6fc5);background:linear-gradient(#3680e1,#2c6fc5);-ms-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-o-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);box-shadow:inset 0 2px 2px rgba(0,0,0,0.05)}.uploadcare-dialog-button-success[disabled],.uploadcare-dialog-button-success.uploadcare-disabled-el{cursor:default;opacity:.6}.uploadcare-dialog-button-success:active,.uploadcare-dialog-button-success:hover{border-color:#266eca #1f62b7 #1753a1}.uploadcare-dialog-button-success:hover{-ms-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-moz-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-webkit-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-o-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5)}.uploadcare-dialog-button-success:active{-ms-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-moz-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-webkit-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-o-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);box-shadow:inset 0 1px 3px rgba(22,82,160,0.4)}.uploadcare-dialog-big-button{border-radius:100px;font-size:20px;font-weight:normal;letter-spacing:1px;color:white;line-height:64px;border:solid 1px #276fcb;text-shadow:0 -1px #2a7ce5;display:inline-block;padding:0 2em;cursor:pointer;-ms-box-shadow:inset 0 -2px #1f66c1;-moz-box-shadow:inset 0 -2px #1f66c1;-webkit-box-shadow:inset 0 -2px #1f66c1;-o-box-shadow:inset 0 -2px #1f66c1;box-shadow:inset 0 -2px #1f66c1;background:#458dee;background:-webkit-linear-gradient(#4892f6,#4289e6);background:-moz-linear-gradient(#4892f6,#4289e6);background:-o-linear-gradient(#4892f6,#4289e6);background:linear-gradient(#4892f6,#4289e6)}.uploadcare-dialog-big-button:hover{-ms-box-shadow:inset 0 -2px #1652a0;-moz-box-shadow:inset 0 -2px #1652a0;-webkit-box-shadow:inset 0 -2px #1652a0;-o-box-shadow:inset 0 -2px #1652a0;box-shadow:inset 0 -2px #1652a0;background:#3279d6;background:-webkit-linear-gradient(#3986eb,#2c6dc2);background:-moz-linear-gradient(#3986eb,#2c6dc2);background:-o-linear-gradient(#3986eb,#2c6dc2);background:linear-gradient(#3986eb,#2c6dc2)}.uploadcare-dialog-big-button:active{border:none;line-height:66px;-ms-box-shadow:inset 0 2px #2561b9;-moz-box-shadow:inset 0 2px #2561b9;-webkit-box-shadow:inset 0 2px #2561b9;-o-box-shadow:inset 0 2px #2561b9;box-shadow:inset 0 2px #2561b9;background:#2c6ec3;background:-webkit-linear-gradient(#2c6ec3,#2c6ec3);background:-moz-linear-gradient(#2c6ec3,#2c6ec3);background:-o-linear-gradient(#2c6ec3,#2c6ec3);background:linear-gradient(#2c6ec3,#2c6ec3)}.uploadcare-dialog-preview-image-wrap1{width:100%;height:456px;margin-bottom:22px;display:table}.uploadcare-dialog-preview-image-wrap2{display:table-cell;vertical-align:middle}.uploadcare-dialog-preview-image{max-width:775px;max-height:456px;display:block;margin:0 auto}.uploadcare-dialog-inner-footer{background:#fff3be;border-top:1px solid #efe2a9;height:33px;padding:16px 30px;margin:0 -25px -22px;border-bottom-right-radius:8px}.uploadcare-dialog-inner-footer .uploadcare-dialog-button-success{float:right}.uploadcare-dialog-inner-footer .uploadcare-dialog-button{float:left}.uploadcare-dialog-inner-footer .uploadcare-dialog-button-success,.uploadcare-dialog-inner-footer .uploadcare-dialog-button{width:112.5px;padding:0;text-align:center;margin-right:0}.uploadcare-dialog-inner-footer-text{text-align:center;color:#85732c;font-size:15px;line-height:33px}.uploadcare-dialog-inner-footer-text.uploadcare-error{color:red}.uploadcare-dialog-message-center{text-align:center;padding-top:110px}.uploadcare-dialog-preview-center{text-align:center;padding-top:176px}.uploadcare-dialog-preview-circle{width:66px;height:66px;display:inline-block;margin-bottom:22px}.uloadcare-dialog-error-tab-wrap{height:100%;text-align:center}.uloadcare-dialog-error-tab-wrap:before{vertical-align:middle;display:inline-block;content:\'\';height:100%}.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-title{margin-bottom:12px}.uloadcare-dialog-error-tab-wrap .uloadcare-dialog-error-tab-illustration,.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-normal-text{margin-bottom:38px}.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-button-success{margin:0}.uloadcare-dialog-error-tab-wrap2{vertical-align:middle;display:inline-block;margin-top:-22px}.uloadcare-dialog-error-tab-illustration{display:inline-block;width:170px;height:120px;background-position:center;background-repeat:no-repeat}.uploadcare-no-draganddrop .uploadcare-if-draganddrop{display:none}.uploadcare-draganddrop .uploadcare-if-no-draganddrop{display:none}.uploadcare-dialog-file-drop-area{width:100%;height:100%;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;background:#f8f8f8;border:dashed 3px #c5cacd;text-align:center;border-radius:3px;padding-top:70px}.uploadcare-dialog-file-drop-area .uploadcare-dialog-big-button{margin-top:11px;margin-bottom:55px}.uploadcare-no-draganddrop .uploadcare-dialog-file-drop-area{border:none;padding-top:73px;background:transparent}.uploadcare-dialog-file-title{font-size:40px;line-height:1;color:#dee0e1;font-weight:bold;margin-bottom:66px;text-shadow:0 1px white}.uploadcare-no-draganddrop .uploadcare-dialog-file-title{text-shadow:none;color:black;margin-top:66px}.uploadcare-dialog-file-or{font-size:13px;color:#8f9498;margin-bottom:44px}.uploadcare-dialog-file-sources{position:relative;display:inline-block;max-width:550px}.uploadcare-dialog-file-sources:before{content:\'\';display:block;position:absolute;width:67px;height:44px;top:-32px;left:-90px}.uploadcare-dialog-file-source{display:inline;font-size:15px;margin-right:.2em;cursor:pointer;font-weight:300;white-space:nowrap}.uploadcare-dialog-file-source:after{content:\'\\00B7\';color:#b7babc;margin-left:.5em}.uploadcare-dialog-file-source:last-child:after{display:none}.uploadcare-draging .uploadcare-dialog-file-or,.uploadcare-draging .uploadcare-dialog-file-sources,.uploadcare-draging .uploadcare-dialog-file-drop-area .uploadcare-dialog-big-button{display:none}.uploadcare-draging .uploadcare-dialog-file-drop-area{background:#f2f7fe;border-color:#438ae7;padding-top:264px}.uploadcare-draging .uploadcare-dialog-file-title{color:#438ae7}.uploadcare-dpm-file-list{height:478px;overflow:auto;margin:0 -25px;padding:0 25px}.uploadcare-dpm-file-item{border-top:1px solid #e3e3e3;border-bottom:1px solid #e3e3e3;margin-bottom:-1px;padding:10px 0;font-size:13px;line-height:1;word-wrap:break-word}.uploadcare-dpm-file-item:last-child{margin-bottom:0}.uploadcare-dpm-file-item:hover,.uploadcare-dpm-file-item.ui-sortable-helper{background:#ececec}.uploadcare-dpm-file-item:hover .uploadcare-dpm-file-remove,.uploadcare-dpm-file-item.ui-sortable-helper .uploadcare-dpm-file-remove{display:inline-block}.uploadcare-dpm-file-item.ui-sortable-helper{cursor:move}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-preview-wrap{display:inline-block}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-name{width:60%}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-name:before{display:none}.uploadcare-dpm-file-item.uploadcare-dpm-uploaded .uploadcare-dpm-file-progressbar-value{background:#8ac54c}.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-error{display:inline-block}.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-size,.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-progressbar-wrap{display:none}.uploadcare-dpm-file-preview-wrap,.uploadcare-dpm-file-name,.uploadcare-dpm-file-size,.uploadcare-dpm-file-progressbar-wrap,.uploadcare-dpm-file-error,.uploadcare-dpm-file-remove-wrap{vertical-align:middle;display:inline-block;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;padding:0 10px}.uploadcare-dpm-file-preview-wrap{text-align:center;width:8%;height:45px;display:none;padding:0;line-height:0}.uploadcare-dpm-file-name,.uploadcare-dpm-file-size,.uploadcare-dpm-file-error{padding-top:4px;padding-bottom:4px}.uploadcare-dpm-file-name:before,.uploadcare-dpm-file-error:before{content:\'\';display:inline-block;width:20px;height:20px;margin:-3.5px .7em -3.5px 0}.uploadcare-dpm-file-name{width:68%}.uploadcare-dpm-file-name:before{width:16px}.uploadcare-dpm-file-size{width:10%;padding-right:0;text-align:left}.uploadcare-dpm-file-progressbar-wrap{width:14%}.uploadcare-dpm-file-progressbar{width:80px;height:8px;background:#e0e0e0;border-radius:100px}.uploadcare-dpm-file-progressbar-value{height:100%;background:#d6b849;border-radius:100px}.uploadcare-dpm-file-error{width:24%;display:none;color:#f5444b}.uploadcare-dpm-file-remove-wrap{padding:0;padding-right:10px;width:8%;text-align:right;line-height:0}.uploadcare-dpm-file-remove{display:none;width:20px;height:20px;cursor:pointer}.uploadcare-dialog-source-base-wrap{height:616px;margin:-22px -25px;padding:22px 25px;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box}.uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap{padding:0}.uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap iframe{border-top-right-radius:8px;border-bottom-right-radius:8px}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap iframe{border-bottom-right-radius:0}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-wrap{height:550px;margin:-22px -25px 0}.uploadcare-dialog-source-base-footer{display:none}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-footer{display:block}.uploadcare-crop-widget .jcrop-holder{direction:ltr;text-align:left}.uploadcare-crop-widget .jcrop-vline,.uploadcare-crop-widget .jcrop-hline{background-color:white;background-position:top left;background-repeat:repeat;font-size:0;position:absolute}.uploadcare-crop-widget .jcrop-vline{height:100%;width:1px!important}.uploadcare-crop-widget .jcrop-hline{height:1px!important;width:100%}.uploadcare-crop-widget .jcrop-vline.right{right:0}.uploadcare-crop-widget .jcrop-hline.bottom{bottom:0}.uploadcare-crop-widget .jcrop-handle{background-color:#333;border:1px #eee solid;font-size:1px}.uploadcare-crop-widget .jcrop-tracker{height:100%;width:100%;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none}.uploadcare-crop-widget .jcrop-handle.ord-n{left:50%;margin-left:-4px;margin-top:-4px;top:0}.uploadcare-crop-widget .jcrop-handle.ord-s{bottom:0;left:50%;margin-bottom:-4px;margin-left:-4px}.uploadcare-crop-widget .jcrop-handle.ord-e{margin-right:-4px;margin-top:-4px;right:0;top:50%}.uploadcare-crop-widget .jcrop-handle.ord-w{left:0;margin-left:-4px;margin-top:-4px;top:50%}.uploadcare-crop-widget .jcrop-handle.ord-nw{left:0;margin-left:-4px;margin-top:-4px;top:0}.uploadcare-crop-widget .jcrop-handle.ord-ne{margin-right:-4px;margin-top:-4px;right:0;top:0}.uploadcare-crop-widget .jcrop-handle.ord-se{bottom:0;margin-bottom:-4px;margin-right:-4px;right:0}.uploadcare-crop-widget .jcrop-handle.ord-sw{bottom:0;left:0;margin-bottom:-4px;margin-left:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-n,.uploadcare-crop-widget .jcrop-dragbar.ord-s{height:7px;width:100%}.uploadcare-crop-widget .jcrop-dragbar.ord-e,.uploadcare-crop-widget .jcrop-dragbar.ord-w{height:100%;width:7px}.uploadcare-crop-widget .jcrop-dragbar.ord-n{margin-top:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-s{bottom:0;margin-bottom:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-e{margin-right:-4px;right:0}.uploadcare-crop-widget .jcrop-dragbar.ord-w{margin-left:-4px}.uploadcare-crop-widget .jcrop-light .jcrop-vline,.uploadcare-crop-widget .jcrop-light .jcrop-hline{background:#FFF;filter:Alpha(opacity=70)!important;opacity:.70!important}.uploadcare-crop-widget .jcrop-light .jcrop-handle{-moz-border-radius:3px;-webkit-border-radius:3px;background-color:#000;border-color:#FFF;border-radius:3px}.uploadcare-crop-widget .jcrop-dark .jcrop-vline,.uploadcare-crop-widget .jcrop-dark .jcrop-hline{background:#000;filter:Alpha(opacity=70)!important;opacity:.7!important}.uploadcare-crop-widget .jcrop-dark .jcrop-handle{-moz-border-radius:3px;-webkit-border-radius:3px;background-color:#FFF;border-color:#000;border-radius:3px}.uploadcare-crop-widget .jcrop-holder img,.uploadcare-crop-widget img.jcrop-preview{max-width:none}.uploadcare-crop-widget{font-family:"Helvetica Neue",Helvetica,Arial,"Lucida Grande",sans-serif;position:relative}.uploadcare-crop-widget .jcrop-holder{margin:0 auto}.uploadcare-crop-widget--loading{background-repeat:no-repeat;background-position:center}.uploadcare-crop-widget img{display:block}.uploadcare-crop-widget__error{text-align:center;display:none}.uploadcare-crop-widget--error .uploadcare-crop-widget__error{display:block}.uploadcare-crop-widget__error__title{font-size:20px}.uploadcare-crop-widget__error__text{font-size:15px}.uploadcare-widget{display:inline-block!important;position:relative;vertical-align:middle;padding:0 5px}.uploadcare-widget[data-status=loaded] .uploadcare-widget-button,.uploadcare-widget[data-status=started] .uploadcare-widget-button{display:none}.uploadcare-widget[data-status=started] .uploadcare-widget-buttons .uploadcare-widget-buttons-cancel,.uploadcare-widget[data-status=loaded] .uploadcare-widget-buttons .uploadcare-widget-buttons-remove{display:inline-block}.uploadcare-widget .uploadcare-widget-circle{width:25px;height:25px;top:-1px;float:left;margin-right:1ex}.uploadcare-widget-circle{position:relative}.uploadcare-widget-circle--text .uploadcare-widget-circle-back{position:relative;width:100%;height:100%;border-radius:50%;display:table}.uploadcare-widget-circle--text .uploadcare-widget-circle-text{display:table-cell;vertical-align:middle;text-align:center;font-size:60%;line-height:1}.uploadcare-widget-buttons{position:relative;top:-1px;float:left;overflow:hidden;margin:0;padding:0;list-style:none}.uploadcare-widget-buttons .uploadcare-widget-button{display:inline-block;height:24px;float:left;font-size:11px;color:#8f9295;line-height:25px;width:36px;padding:0 6px;margin:0 3px 1px 0;list-style:none;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;border-radius:2px;background:#e1e5e7;cursor:default}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-file,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-position:0 0;background-repeat:no-repeat;padding-left:30px}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-position:0 -24px}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-cancel,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-remove{font-size:.9em;display:none;width:auto}.uploadcare-widget-status-text{float:left;overflow:hidden;line-height:25px;height:25px;margin-right:1ex;white-space:nowrap;padding:0 5px}.uploadcare-widget-file-name{cursor:pointer;color:#1a85ad;border-bottom-color:#1a85ad;text-decoration:none;border-bottom:1px dotted}.uploadcare-widget .uploadcare-widget-dragndrop-area{display:none;position:absolute;top:-8px;left:0;width:100%;height:41px;line-height:41px;text-align:center;background-color:#f0f0f0;color:#707478;border:1px dashed #b3b5b6;border-radius:20.5px}.uploadcare-widget .uploadcare-widget-dragndrop-area.uploadcare-dragging{display:block}\n');}return __p.join('');};
+  this.JST["uploadcare/templates/styles"] = function(obj){var __p=[],print=function(){__p.push.apply(__p,arguments);};with(obj||{}){__p.push('\n\n\n\n\n\n.uploadcare-dialog-tab:after,.uploadcare-dialog-tab:hover:after,.uploadcare-dialog-disabled-tab:hover:after{background-image:url("',  utils.imagePath('tab-icons.png') ,'")}.uploadcare-dialog-selected-tab:after{background-image:url("',  utils.imagePath('tab-icons-active.png') ,'")}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-file,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-image:url("',  utils.imagePath('buttons.png') ,'")}.uploadcare-crop-widget .jcrop-vline,.uploadcare-crop-widget .jcrop-hline{background-image:url("',  utils.imagePath('crop-border-bg.gif') ,'")}.uploadcare-dialog-file-sources:before{background-image:url("',  utils.imagePath('arrow.png') ,'")}.uploadcare-crop-widget--loading{background-image:url("',  utils.imagePath('loading-spinner.gif') ,'")}.uploadcare-dpm-file-remove{background-image:url("',  utils.imagePath('remove-button.png') ,'")}.uploadcare-dpm-file-error:before{background-image:url("',  utils.imagePath('error-icon.png') ,'")}.uploadcare-dpm-file-name:before{background-image:url("',  utils.imagePath('file-icon.png') ,'")}.uloadcare-dialog-error-tab-illustration{background-image:url("',  utils.imagePath('error-default.png') ,'")}.uloadcare-dialog-error-tab-image .uloadcare-dialog-error-tab-illustration{background-image:url("',  utils.imagePath('error-image.png') ,'")}.uploadcare-dialog{background:url("',  utils.imagePath('dialog-overlay.png') ,'");background:rgba(48,48,48,0.95)}.uploadcare-dialog{font-family:"Helvetica Neue",Helvetica,Arial,"Lucida Grande",sans-serif;position:fixed;left:0;top:0;width:100%;height:100%;z-index:10000;overflow:auto}.uploadcare-dialog *{margin:0;padding:0}.uploadcare-dialog .uploadcare-dialog-panel{margin:0 auto;width:900px;border-radius:8px}.uploadcare-dialog-inner-wrap1{position:relative;display:table;width:100%;height:100%}.uploadcare-dialog-inner-wrap2{display:table-cell;vertical-align:middle;padding:0 44px}.uploadcare-dialog-close{margin:0;padding:0;border:none;background:none;width:33px;height:33px;line-height:33px;font-size:29.7px;font-weight:bold;color:#1d1d1d;cursor:pointer;position:absolute;right:0;top:4px}.uploadcare-dialog-panel{height:616px;overflow:hidden;background:#efefef;-ms-box-shadow:0 1px 2px rgba(0,0,0,0.35);-moz-box-shadow:0 1px 2px rgba(0,0,0,0.35);-webkit-box-shadow:0 1px 2px rgba(0,0,0,0.35);-o-box-shadow:0 1px 2px rgba(0,0,0,0.35);box-shadow:0 1px 2px rgba(0,0,0,0.35);font-weight:normal}.uploadcare-dialog-panel a{text-decoration:none;border-bottom:1px dotted}.uploadcare-dialog-panel a:link,.uploadcare-dialog-panel a:visited{color:#1a85ad;border-bottom-color:#1a85ad}.uploadcare-dialog-panel a:hover,.uploadcare-dialog-panel a:active{color:#252525;border-bottom-color:#252525}.uploadcare-dialog-tabs{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:75px;height:616px;float:left;list-style:none;list-style-type:none;margin:0;padding:0;background:#dee0e1;border-bottom-left-radius:8px;border-top-left-radius:8px;overflow:hidden;position:relative}.uploadcare-dialog-tabs:before{content:\'\';display:block;position:absolute;top:0;right:0;bottom:0;width:0;border-left:1px solid #c5cace}.uploadcare-dialog-tab{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:75px;height:66px;border-bottom:1px solid #c5cace;border-right:1px solid #c5cace;cursor:pointer;position:relative}.uploadcare-dialog-tab:after{content:\'\';display:block;position:absolute;width:50px;height:50px;top:50%;left:50%;margin-top:-25px;margin-left:-25px;border:none;opacity:.66}.uploadcare-dialog-tab:hover{background-color:#e5e7e8}.uploadcare-dialog-tab:hover:after{opacity:1}.uploadcare-dialog-selected-tab{margin-right:-1px;border-right:1px solid #efefef}.uploadcare-dialog-selected-tab,.uploadcare-dialog-selected-tab:hover{background-color:#efefef}.uploadcare-dialog-selected-tab:after{opacity:1}.uploadcare-dialog-disabled-tab{cursor:default}.uploadcare-dialog-disabled-tab:hover{background-color:#dee0e1}.uploadcare-dialog-tab-preview:after{display:none}.uploadcare-dialog-tab-file:after{background-position:0 -50px}.uploadcare-dialog-tab-url:after{background-position:0 -100px}.uploadcare-dialog-tab-facebook:after{background-position:0 -150px}.uploadcare-dialog-tab-dropbox:after{background-position:0 -200px}.uploadcare-dialog-tab-gdrive:after{background-position:0 -250px}.uploadcare-dialog-tab-instagram:after{background-position:0 -300px}.uploadcare-dialog-tab-vk:after{background-position:0 -350px}.uploadcare-dialog-tab-evernote:after{background-position:0 -400px}.uploadcare-dialog-first-tab{border-top-left-radius:8px}.uploadcare-dialog-tabs-panel{position:relative;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;margin-left:75px;padding:22px 25px;height:616px;line-height:22px;border-bottom-right-radius:8px;border-top-right-radius:8px;font-size:16px;color:black}.uploadcare-dialog-tabs-panel input{-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;width:100%;height:44px;margin-bottom:22px;padding:11px 12.5px;font-family:inherit;font-size:16px;border:1px solid #c5cace;background:white;color:black}.uploadcare-dialog-drop-file{background:white;border:1px dashed #c5cace;border-radius:3px;height:99px;padding-top:77px;text-align:center;color:#545454}.uploadcare-pre{white-space:pre;font-family:monospace;margin:22px auto;padding:22px 25px;background-color:white;border:1px solid #c5cace;border-radius:3px;text-align:left;font-size:15px;line-height:22px}.uploadcare-dialog-footer{font-size:13px;text-align:center;color:#888;margin-top:15px}.uploadcare-dialog-footer a{color:#c2c2c2;text-decoration:none}.uploadcare-dialog-footer a:hover{text-decoration:underline}.uploadcare-dialog-title{font-size:25px;line-height:1;margin-bottom:25px}.uploadcare-dialog-title2{font-size:20px;line-height:1;padding-bottom:11px}.uploadcare-dialog-big-title{font-size:40px;font-weight:bold;line-height:1em;margin-bottom:50px}.uploadcare-dialog-label{font-size:15px;line-height:25px;margin-bottom:12.5px}.uploadcare-dialog-large-text{font-size:20px;font-weight:normal;line-height:1.5em}.uploadcare-dialog-large-text .uploadcare-pre{display:inline-block;font-size:18px}.uploadcare-dialog-section{margin-bottom:22px}.uploadcare-dialog-normal-text{font-size:13px;color:#545454}.uploadcare-dialog-button{display:inline-block;font-size:13px;line-height:31px;padding:0 22px;margin-right:.5em;border:solid 1px;border-radius:3px;cursor:pointer;color:#444}.uploadcare-dialog-button,.uploadcare-dialog-button[disabled]:active,.uploadcare-dialog-button.uploadcare-disabled-el:active,.uploadcare-dialog-button[disabled]:hover,.uploadcare-dialog-button.uploadcare-disabled-el:hover{background:#f3f3f3;background:-webkit-linear-gradient(whitesmoke,#f1f1f1);background:-moz-linear-gradient(whitesmoke,#f1f1f1);background:-o-linear-gradient(whitesmoke,#f1f1f1);background:linear-gradient(whitesmoke,#f1f1f1);-ms-box-shadow:none;-moz-box-shadow:none;-webkit-box-shadow:none;-o-box-shadow:none;box-shadow:none;border-color:gainsboro}.uploadcare-dialog-button:hover{background:#f8f8f8;background:-webkit-linear-gradient(#fbfbfb,#f6f6f6);background:-moz-linear-gradient(#fbfbfb,#f6f6f6);background:-o-linear-gradient(#fbfbfb,#f6f6f6);background:linear-gradient(#fbfbfb,#f6f6f6);-ms-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-o-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05)}.uploadcare-dialog-button:active{background:#f3f3f3;background:-webkit-linear-gradient(whitesmoke,#f1f1f1);background:-moz-linear-gradient(whitesmoke,#f1f1f1);background:-o-linear-gradient(whitesmoke,#f1f1f1);background:linear-gradient(whitesmoke,#f1f1f1);-ms-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-o-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);box-shadow:inset 0 2px 2px rgba(0,0,0,0.05)}.uploadcare-dialog-button[disabled],.uploadcare-dialog-button.uploadcare-disabled-el{cursor:default;opacity:.6}.uploadcare-dialog-button:active,.uploadcare-dialog-button:hover{border-color:#cbcbcb}.uploadcare-dialog-button-success{display:inline-block;font-size:13px;line-height:31px;padding:0 22px;margin-right:.5em;border:solid 1px;border-radius:3px;cursor:pointer;color:white}.uploadcare-dialog-button-success,.uploadcare-dialog-button-success[disabled]:active,.uploadcare-dialog-button-success.uploadcare-disabled-el:active,.uploadcare-dialog-button-success[disabled]:hover,.uploadcare-dialog-button-success.uploadcare-disabled-el:hover{background:#3786eb;background:-webkit-linear-gradient(#3b8df7,#347fdf);background:-moz-linear-gradient(#3b8df7,#347fdf);background:-o-linear-gradient(#3b8df7,#347fdf);background:linear-gradient(#3b8df7,#347fdf);-ms-box-shadow:none;-moz-box-shadow:none;-webkit-box-shadow:none;-o-box-shadow:none;box-shadow:none;border-color:#266fcb}.uploadcare-dialog-button-success:hover{background:#3279d6;background:-webkit-linear-gradient(#3986ea,#2c6dc2);background:-moz-linear-gradient(#3986ea,#2c6dc2);background:-o-linear-gradient(#3986ea,#2c6dc2);background:linear-gradient(#3986ea,#2c6dc2);-ms-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);-o-box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05);box-shadow:inset 0 -1px 3px rgba(0,0,0,0.05)}.uploadcare-dialog-button-success:active{background:#3177d3;background:-webkit-linear-gradient(#3680e1,#2c6fc5);background:-moz-linear-gradient(#3680e1,#2c6fc5);background:-o-linear-gradient(#3680e1,#2c6fc5);background:linear-gradient(#3680e1,#2c6fc5);-ms-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-moz-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-webkit-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);-o-box-shadow:inset 0 2px 2px rgba(0,0,0,0.05);box-shadow:inset 0 2px 2px rgba(0,0,0,0.05)}.uploadcare-dialog-button-success[disabled],.uploadcare-dialog-button-success.uploadcare-disabled-el{cursor:default;opacity:.6}.uploadcare-dialog-button-success:active,.uploadcare-dialog-button-success:hover{border-color:#266eca #1f62b7 #1753a1}.uploadcare-dialog-button-success:hover{-ms-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-moz-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-webkit-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);-o-box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5);box-shadow:inset 0 -1px 3px rgba(22,82,160,0.5)}.uploadcare-dialog-button-success:active{-ms-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-moz-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-webkit-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);-o-box-shadow:inset 0 1px 3px rgba(22,82,160,0.4);box-shadow:inset 0 1px 3px rgba(22,82,160,0.4)}.uploadcare-dialog-big-button{border-radius:100px;font-size:20px;font-weight:normal;letter-spacing:1px;color:white;line-height:64px;border:solid 1px #276fcb;text-shadow:0 -1px #2a7ce5;display:inline-block;padding:0 2em;cursor:pointer;-ms-box-shadow:inset 0 -2px #1f66c1;-moz-box-shadow:inset 0 -2px #1f66c1;-webkit-box-shadow:inset 0 -2px #1f66c1;-o-box-shadow:inset 0 -2px #1f66c1;box-shadow:inset 0 -2px #1f66c1;background:#458dee;background:-webkit-linear-gradient(#4892f6,#4289e6);background:-moz-linear-gradient(#4892f6,#4289e6);background:-o-linear-gradient(#4892f6,#4289e6);background:linear-gradient(#4892f6,#4289e6)}.uploadcare-dialog-big-button:hover{-ms-box-shadow:inset 0 -2px #1652a0;-moz-box-shadow:inset 0 -2px #1652a0;-webkit-box-shadow:inset 0 -2px #1652a0;-o-box-shadow:inset 0 -2px #1652a0;box-shadow:inset 0 -2px #1652a0;background:#3279d6;background:-webkit-linear-gradient(#3986eb,#2c6dc2);background:-moz-linear-gradient(#3986eb,#2c6dc2);background:-o-linear-gradient(#3986eb,#2c6dc2);background:linear-gradient(#3986eb,#2c6dc2)}.uploadcare-dialog-big-button:active{border:none;line-height:66px;-ms-box-shadow:inset 0 2px #2561b9;-moz-box-shadow:inset 0 2px #2561b9;-webkit-box-shadow:inset 0 2px #2561b9;-o-box-shadow:inset 0 2px #2561b9;box-shadow:inset 0 2px #2561b9;background:#2c6ec3;background:-webkit-linear-gradient(#2c6ec3,#2c6ec3);background:-moz-linear-gradient(#2c6ec3,#2c6ec3);background:-o-linear-gradient(#2c6ec3,#2c6ec3);background:linear-gradient(#2c6ec3,#2c6ec3)}.uploadcare-dialog-preview-image-wrap1{width:100%;height:456px;margin-bottom:22px;display:table}.uploadcare-dialog-preview-image-wrap2{display:table-cell;vertical-align:middle}.uploadcare-dialog-preview-image{max-width:100%;max-height:456px;display:block;margin:0 auto}.uploadcare-dialog-inner-footer{background:#fff3be;border-top:1px solid #efe2a9;height:33px;padding:16px 30px;margin:0 -25px -22px;border-bottom-right-radius:8px}.uploadcare-dialog-inner-footer .uploadcare-dialog-button-success{float:right}.uploadcare-dialog-inner-footer .uploadcare-dialog-button{float:left}.uploadcare-dialog-inner-footer .uploadcare-dialog-button-success,.uploadcare-dialog-inner-footer .uploadcare-dialog-button{width:112.5px;padding:0;text-align:center;margin-right:0}.uploadcare-dialog-inner-footer-text{text-align:center;color:#85732c;font-size:15px;line-height:33px}.uploadcare-dialog-inner-footer-text.uploadcare-error{color:red}.uploadcare-dialog-message-center{text-align:center;padding-top:110px}.uploadcare-dialog-preview-center{text-align:center;padding-top:176px}.uploadcare-dialog-preview-circle{width:66px;height:66px;display:inline-block;margin-bottom:22px}.uloadcare-dialog-error-tab-wrap{height:100%;text-align:center}.uloadcare-dialog-error-tab-wrap:before{vertical-align:middle;display:inline-block;content:\'\';height:100%}.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-title{margin-bottom:12px}.uloadcare-dialog-error-tab-wrap .uloadcare-dialog-error-tab-illustration,.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-normal-text{margin-bottom:38px}.uloadcare-dialog-error-tab-wrap .uploadcare-dialog-button-success{margin:0}.uloadcare-dialog-error-tab-wrap2{vertical-align:middle;display:inline-block;margin-top:-22px}.uloadcare-dialog-error-tab-illustration{display:inline-block;width:170px;height:120px;background-position:center;background-repeat:no-repeat}.uploadcare-no-draganddrop .uploadcare-if-draganddrop{display:none}.uploadcare-draganddrop .uploadcare-if-no-draganddrop{display:none}.uploadcare-dialog-file-drop-area{width:100%;height:100%;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;background:#f8f8f8;border:dashed 3px #c5cacd;text-align:center;border-radius:3px;padding-top:70px}.uploadcare-dialog-file-drop-area .uploadcare-dialog-big-button{margin-top:11px;margin-bottom:55px}.uploadcare-no-draganddrop .uploadcare-dialog-file-drop-area{border:none;padding-top:73px;background:transparent}.uploadcare-dialog-file-title{font-size:40px;line-height:1;color:#dee0e1;font-weight:bold;margin-bottom:66px;text-shadow:0 1px white}.uploadcare-no-draganddrop .uploadcare-dialog-file-title{text-shadow:none;color:black;margin-top:66px}.uploadcare-dialog-file-or{font-size:13px;color:#8f9498;margin-bottom:44px}.uploadcare-dialog-file-sources{position:relative;display:inline-block;padding:0 80px 0 100px;line-height:2em}.uploadcare-dialog-file-sources:before{content:\'\';display:block;position:absolute;width:67px;height:44px;padding:0;top:-30px;left:10px}.uploadcare-dialog-file-source{display:inline;font-size:15px;margin-right:.2em;cursor:pointer;font-weight:300;white-space:nowrap}.uploadcare-dialog-file-source:after{content:\'\\00B7\';color:#b7babc;margin-left:.5em}.uploadcare-dialog-file-source:last-child:after{display:none}.uploadcare-draging .uploadcare-dialog-file-or,.uploadcare-draging .uploadcare-dialog-file-sources,.uploadcare-draging .uploadcare-dialog-file-drop-area .uploadcare-dialog-big-button{display:none}.uploadcare-draging .uploadcare-dialog-file-drop-area{background:#f2f7fe;border-color:#438ae7;padding-top:264px}.uploadcare-draging .uploadcare-dialog-file-title{color:#438ae7}.uploadcare-dpm-file-list{height:478px;overflow:auto;margin:0 -25px;padding:0 25px}.uploadcare-dpm-file-item{border-top:1px solid #e3e3e3;border-bottom:1px solid #e3e3e3;margin-bottom:-1px;padding:10px 0;font-size:13px;line-height:1;word-wrap:break-word}.uploadcare-dpm-file-item:last-child{margin-bottom:0}.uploadcare-dpm-file-item:hover,.uploadcare-dpm-file-item.ui-sortable-helper{background:#ececec}.uploadcare-dpm-file-item:hover .uploadcare-dpm-file-remove,.uploadcare-dpm-file-item.ui-sortable-helper .uploadcare-dpm-file-remove{display:inline-block}.uploadcare-dpm-file-item.ui-sortable-helper{cursor:move}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-preview-wrap{display:inline-block}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-name{width:60%}.uploadcare-dpm-file-item.uploadcare-dpm-image .uploadcare-dpm-file-name:before{display:none}.uploadcare-dpm-file-item.uploadcare-dpm-uploaded .uploadcare-dpm-file-progressbar-value{background:#8ac54c}.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-error{display:inline-block}.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-size,.uploadcare-dpm-file-item.uploadcare-dpm-error .uploadcare-dpm-file-progressbar-wrap{display:none}.uploadcare-dpm-file-preview-wrap,.uploadcare-dpm-file-name,.uploadcare-dpm-file-size,.uploadcare-dpm-file-progressbar-wrap,.uploadcare-dpm-file-error,.uploadcare-dpm-file-remove-wrap{vertical-align:middle;display:inline-block;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;padding:0 10px}.uploadcare-dpm-file-preview-wrap{text-align:center;width:8%;height:45px;display:none;padding:0;line-height:0}.uploadcare-dpm-file-name,.uploadcare-dpm-file-size,.uploadcare-dpm-file-error{padding-top:4px;padding-bottom:4px}.uploadcare-dpm-file-name:before,.uploadcare-dpm-file-error:before{content:\'\';display:inline-block;width:20px;height:20px;margin:-3.5px .7em -3.5px 0}.uploadcare-dpm-file-name{width:68%}.uploadcare-dpm-file-name:before{width:16px}.uploadcare-dpm-file-size{width:10%;padding-right:0;text-align:left}.uploadcare-dpm-file-progressbar-wrap{width:14%}.uploadcare-dpm-file-progressbar{width:80px;height:8px;background:#e0e0e0;border-radius:100px}.uploadcare-dpm-file-progressbar-value{height:100%;background:#d6b849;border-radius:100px}.uploadcare-dpm-file-error{width:24%;display:none;color:#f5444b}.uploadcare-dpm-file-remove-wrap{padding:0;padding-right:10px;width:8%;text-align:right;line-height:0}.uploadcare-dpm-file-remove{display:none;width:20px;height:20px;cursor:pointer}.uploadcare-dialog-source-base-wrap{height:616px;margin:-22px -25px;padding:22px 25px;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box}.uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap{padding:0}.uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap iframe{border-top-right-radius:8px;border-bottom-right-radius:8px}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-wrap.uploadcare-dialog-remote-iframe-wrap iframe{border-bottom-right-radius:0}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-wrap{height:550px;margin:-22px -25px 0}.uploadcare-dialog-source-base-footer{display:none}.uploadcare-dialog-multiple .uploadcare-dialog-source-base-footer{display:block}.uploadcare-crop-widget .jcrop-holder{direction:ltr;text-align:left}.uploadcare-crop-widget .jcrop-vline,.uploadcare-crop-widget .jcrop-hline{background-color:white;background-position:top left;background-repeat:repeat;font-size:0;position:absolute}.uploadcare-crop-widget .jcrop-vline{height:100%;width:1px!important}.uploadcare-crop-widget .jcrop-hline{height:1px!important;width:100%}.uploadcare-crop-widget .jcrop-vline.right{right:0}.uploadcare-crop-widget .jcrop-hline.bottom{bottom:0}.uploadcare-crop-widget .jcrop-handle{background-color:#333;border:1px #eee solid;font-size:1px}.uploadcare-crop-widget .jcrop-tracker{height:100%;width:100%;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none}.uploadcare-crop-widget .jcrop-handle.ord-n{left:50%;margin-left:-4px;margin-top:-4px;top:0}.uploadcare-crop-widget .jcrop-handle.ord-s{bottom:0;left:50%;margin-bottom:-4px;margin-left:-4px}.uploadcare-crop-widget .jcrop-handle.ord-e{margin-right:-4px;margin-top:-4px;right:0;top:50%}.uploadcare-crop-widget .jcrop-handle.ord-w{left:0;margin-left:-4px;margin-top:-4px;top:50%}.uploadcare-crop-widget .jcrop-handle.ord-nw{left:0;margin-left:-4px;margin-top:-4px;top:0}.uploadcare-crop-widget .jcrop-handle.ord-ne{margin-right:-4px;margin-top:-4px;right:0;top:0}.uploadcare-crop-widget .jcrop-handle.ord-se{bottom:0;margin-bottom:-4px;margin-right:-4px;right:0}.uploadcare-crop-widget .jcrop-handle.ord-sw{bottom:0;left:0;margin-bottom:-4px;margin-left:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-n,.uploadcare-crop-widget .jcrop-dragbar.ord-s{height:7px;width:100%}.uploadcare-crop-widget .jcrop-dragbar.ord-e,.uploadcare-crop-widget .jcrop-dragbar.ord-w{height:100%;width:7px}.uploadcare-crop-widget .jcrop-dragbar.ord-n{margin-top:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-s{bottom:0;margin-bottom:-4px}.uploadcare-crop-widget .jcrop-dragbar.ord-e{margin-right:-4px;right:0}.uploadcare-crop-widget .jcrop-dragbar.ord-w{margin-left:-4px}.uploadcare-crop-widget .jcrop-light .jcrop-vline,.uploadcare-crop-widget .jcrop-light .jcrop-hline{background:#FFF;filter:Alpha(opacity=70)!important;opacity:.70!important}.uploadcare-crop-widget .jcrop-light .jcrop-handle{-moz-border-radius:3px;-webkit-border-radius:3px;background-color:#000;border-color:#FFF;border-radius:3px}.uploadcare-crop-widget .jcrop-dark .jcrop-vline,.uploadcare-crop-widget .jcrop-dark .jcrop-hline{background:#000;filter:Alpha(opacity=70)!important;opacity:.7!important}.uploadcare-crop-widget .jcrop-dark .jcrop-handle{-moz-border-radius:3px;-webkit-border-radius:3px;background-color:#FFF;border-color:#000;border-radius:3px}.uploadcare-crop-widget .jcrop-holder img,.uploadcare-crop-widget img.jcrop-preview{max-width:none}.uploadcare-crop-widget{font-family:"Helvetica Neue",Helvetica,Arial,"Lucida Grande",sans-serif;position:relative}.uploadcare-crop-widget .jcrop-holder{margin:0 auto}.uploadcare-crop-widget--loading{background-repeat:no-repeat;background-position:center}.uploadcare-crop-widget img{display:block}.uploadcare-crop-widget__error{text-align:center;display:none}.uploadcare-crop-widget--error .uploadcare-crop-widget__error{display:block}.uploadcare-crop-widget__error__title{font-size:20px}.uploadcare-crop-widget__error__text{font-size:15px}.uploadcare-widget{display:inline-block!important;position:relative;vertical-align:middle;padding:0 5px}.uploadcare-widget[data-status=loaded] .uploadcare-widget-button,.uploadcare-widget[data-status=started] .uploadcare-widget-button{display:none}.uploadcare-widget[data-status=started] .uploadcare-widget-buttons .uploadcare-widget-buttons-cancel,.uploadcare-widget[data-status=loaded] .uploadcare-widget-buttons .uploadcare-widget-buttons-remove{display:inline-block}.uploadcare-widget .uploadcare-widget-circle{width:25px;height:25px;top:-1px;float:left;margin-right:1ex}.uploadcare-widget-circle{position:relative}.uploadcare-widget-circle--text .uploadcare-widget-circle-back{position:relative;width:100%;height:100%;border-radius:50%;display:table}.uploadcare-widget-circle--text .uploadcare-widget-circle-text{display:table-cell;vertical-align:middle;text-align:center;font-size:60%;line-height:1}.uploadcare-widget-buttons{position:relative;top:-1px;float:left;overflow:hidden;margin:0;padding:0;list-style:none}.uploadcare-widget-buttons .uploadcare-widget-button{display:inline-block;height:24px;float:left;font-size:11px;color:#8f9295;line-height:25px;width:36px;padding:0 6px;margin:0 3px 1px 0;list-style:none;-ms-box-sizing:border-box;-moz-box-sizing:border-box;-webkit-box-sizing:border-box;-o-box-sizing:border-box;box-sizing:border-box;border-radius:2px;background:#e1e5e7;cursor:default}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-file,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-position:0 0;background-repeat:no-repeat;padding-left:30px}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-dialog,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-url{background-position:0 -24px}.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-cancel,.uploadcare-widget-buttons .uploadcare-widget-button.uploadcare-widget-buttons-remove{font-size:.9em;display:none;width:auto}.uploadcare-widget-status-text{float:left;overflow:hidden;line-height:25px;height:25px;margin-right:1ex;white-space:nowrap;padding:0 5px}.uploadcare-widget-file-name{cursor:pointer;color:#1a85ad;border-bottom-color:#1a85ad;text-decoration:none;border-bottom:1px dotted}.uploadcare-widget .uploadcare-widget-dragndrop-area{display:none;position:absolute;top:-8px;left:0;width:100%;height:41px;line-height:41px;text-align:center;background-color:#f0f0f0;color:#707478;border:1px dashed #b3b5b6;border-radius:20.5px}.uploadcare-widget .uploadcare-widget-dragndrop-area.uploadcare-dragging{display:block}\n');}return __p.join('');};
 }).call(this);
 (function() {
   this.JST || (this.JST = {});
@@ -3327,7 +3527,7 @@ var _require = (function() {
     } else {
       style.appendChild(document.createTextNode(css));
     }
-    return $('head').append(style);
+    return $('head').prepend(style);
   });
 
 }).call(this);
@@ -6829,7 +7029,7 @@ var _require = (function() {
         if (!TabCls) {
           throw new Error("No such tab: " + name);
         }
-        tabPanel = $('<div>').hide().addClass('uploadcare-dialog-tabs-panel').addClass("uploadcare-dialog-tabs-panel-" + name).appendTo(this.content.find('.uploadcare-dialog-body'));
+        tabPanel = $('<div>').hide().addClass('uploadcare-dialog-tabs-panel').addClass("uploadcare-dialog-tabs-panel-" + name).appendTo(this.content.find('.uploadcare-dialog-panel'));
         tabButton = $('<div>').addClass("uploadcare-dialog-tab uploadcare-dialog-tab-" + name).attr('title', t("tabs." + name + ".title")).on('click', function() {
           return _this.switchTab(name);
         }).appendTo(this.content.find('.uploadcare-dialog-tabs'));
@@ -6842,7 +7042,7 @@ var _require = (function() {
 
       Dialog.prototype.switchTab = function(currentTab) {
         this.currentTab = currentTab;
-        this.content.find('.uploadcare-dialog-body').find('.uploadcare-dialog-selected-tab').removeClass('uploadcare-dialog-selected-tab').end().find(".uploadcare-dialog-tab-" + this.currentTab).addClass('uploadcare-dialog-selected-tab').end().find('.uploadcare-dialog-tabs-panel').hide().filter(".uploadcare-dialog-tabs-panel-" + this.currentTab).show();
+        this.content.find('.uploadcare-dialog-panel').find('.uploadcare-dialog-selected-tab').removeClass('uploadcare-dialog-selected-tab').end().find(".uploadcare-dialog-tab-" + this.currentTab).addClass('uploadcare-dialog-selected-tab').end().find('.uploadcare-dialog-tabs-panel').hide().filter(".uploadcare-dialog-tabs-panel-" + this.currentTab).show();
         return this.dfd.notify(this.currentTab);
       };
 
@@ -7415,22 +7615,29 @@ var _require = (function() {
         this.dialogApi.fileColl.onAnyProgress.add(this.__fileProgress);
         this.dialogApi.fileColl.onAnyDone.add(this.__fileDone);
         this.dialogApi.fileColl.onAnyFail.add(this.__fileFailed);
-        utils.loadPlugin('jquery-ui').done(function() {
-          return _this.fileListEl.sortable({
-            axis: "y",
-            update: function() {
-              var elements, index;
-              elements = _this.__find('file-item');
-              index = function(file) {
-                return elements.index(_this.__fileToEl(file));
-              };
-              return _this.dialogApi.fileColl.sort(function(a, b) {
-                return index(a) - index(b);
-              });
-            }
-          });
-        });
+        this.__setupSorting();
       }
+
+      PreviewTabMultiple.prototype.__setupSorting = function() {
+        var _this = this;
+        return this.fileListEl.sortable({
+          axis: 'y',
+          start: function(info) {
+            return info.dragged.css('visibility', 'hidden');
+          },
+          finish: function(info) {
+            var elements, index;
+            info.dragged.css('visibility', 'visible');
+            elements = _this.__find('file-item');
+            index = function(file) {
+              return elements.index(_this.__fileToEl(file));
+            };
+            return _this.dialogApi.fileColl.sort(function(a, b) {
+              return index(a) - index(b);
+            });
+          }
+        });
+      };
 
       PreviewTabMultiple.prototype.__find = function(s, context) {
         if (context == null) {
@@ -7456,7 +7663,7 @@ var _require = (function() {
         this.__find('file-progressbar-value', fileEl).css('width', Math.round(progressInfo.progress * 100) + '%');
         info = progressInfo.incompleteFileInfo;
         this.__find('file-name', fileEl).text(info.name || t('dialog.tabs.preview.unknownName'));
-        return this.__find('file-size', fileEl).text(utils.readableFileSize(info.size, '–'));
+        return this.__find('file-size', fileEl).text(utils.readableFileSize(info.size, 'â€“'));
       };
 
       PreviewTabMultiple.prototype.__fileDone = function(file, info) {
@@ -7949,7 +8156,7 @@ var _require = (function() {
   var expose, key,
     __hasProp = {}.hasOwnProperty;
 
-  uploadcare.version = '0.15.0';
+  uploadcare.version = '0.15.2';
 
   expose = uploadcare.expose;
 
@@ -8003,4 +8210,4 @@ var _require = (function() {
   });
 
 }).call(this);
-}({}, '//ucarecdn.com/widget/0.15.0/uploadcare/'));
+}({}, '//ucarecdn.com/widget/0.15.2/uploadcare/'));
