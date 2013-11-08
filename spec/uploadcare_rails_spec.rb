@@ -81,4 +81,41 @@ describe Uploadcare::Rails do
 
     resume.attachment.api.last_keep_claim.should be_nil
   end
+
+
+  it 'should save geolocation data if there is geotag in image and columns existed' do
+    @file_new = Rails.application.config.uploadcare.uploader.upload_file(
+      File.expand_path('../geotag-example.jpg', __FILE__)
+    )
+
+    post  = Post.create!(
+      title: "Awesome post",
+      content: "Awesome content",
+      file: @file_new
+    )
+    
+    post.should respond_to(:longitude)
+    post.should respond_to(:latitude)
+
+    post.longitude.should be_kind_of(Float)
+    post.latitude.should be_kind_of(Float)
+  end
+
+  it 'should not save geolocation data if image does not have one (without any errors)' do
+    @file_new = Rails.application.config.uploadcare.uploader.upload_file(
+      File.expand_path('../view.png', __FILE__)
+    )
+
+    post  = Post.create!(
+      title: "Awesome post",
+      content: "Awesome content",
+      file: @file_new
+    )
+    
+    post.should respond_to(:longitude)
+    post.should respond_to(:latitude)
+
+    post.longitude.should be_nil
+    post.latitude.should be_nil
+  end
 end
