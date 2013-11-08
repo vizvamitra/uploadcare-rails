@@ -59,11 +59,13 @@ module Uploadcare
           before_save "geolocate"
 
           define_method "geolocate" do
-            unless send(:longitude).present?
+            columns = self.class.column_names
+            if columns.include?('longitude') && columns.include?('latitude')
               api = send(attribute).api
-
-              self.longitude = api.image_info["geo_location"]["longitude"]
-              self.latitude = api.image_info["geo_location"]["latitude"]
+              unless api.image_info["geo_location"].nil?
+                self.longitude = api.image_info["geo_location"]["longitude"]
+                self.latitude = api.image_info["geo_location"]["latitude"]
+              end
             end
           end
         end
