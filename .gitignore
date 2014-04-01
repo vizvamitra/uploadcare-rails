@@ -7,3 +7,8 @@ spec/dummy/tmp/
 spec/dummy/.sass-cache
 vendor/bundle
 Gemfile.lock
+
+.ruby-version
+.ruby-gemset
+*.gem
+*.DS_Store
