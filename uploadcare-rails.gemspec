@@ -38,7 +38,6 @@ Gem::Specification.new do |gem|
   gem.add_development_dependency 'pry'
   gem.add_development_dependency 'pry-rails'
   gem.add_development_dependency 'better_errors'
-  gem.add_development_dependency 'guard-rspec'
   gem.add_development_dependency 'webmock'
   gem.add_development_dependency 'vcr'
 
