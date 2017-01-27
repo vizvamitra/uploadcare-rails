@@ -1,7 +1,10 @@
 language: ruby
 
 rvm:
-  - 2.2.4
+  - 2.1.10
+  - 2.2.6
+  - 2.3.3
+  - 2.4.0
 
 before_install:
   - gem install bundler --version 1.6.1
@@ -9,7 +12,14 @@ before_install:
 
 gemfile:
   - Gemfile
-  - gemfiles/Gemfile.rails5
+  - gemfiles/Gemfile.rails-4.0-stable
+  - gemfiles/Gemfile.rails-4.1-stable
+  - gemfiles/Gemfile.rails-4.2-stable
+
+matrix:
+  exclude:
+    - rvm: 2.1.10
+      gemfile: Gemfile
 
 env:
   - DB=postgresql
